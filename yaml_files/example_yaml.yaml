@@ -1,0 +1,71 @@
+experiment:
+  name: experiment_01
+  save_dir: saved_models
+  seed: 42
+  batch_size: 512
+
+data:
+  dataset_name: adult_income
+  csv_path: /home/aaldoma/data/adult.csv
+  protected_attributes:
+    - gender
+    - race
+    - native-country
+  label_col: income
+  group_col: group
+  group_id_col: group_id
+
+split:
+  test_size: 0.25
+  val_size: 0.15
+
+preprocessing:
+  log1p_cols:
+    - capital-gain
+    - capital-loss
+  drop_feature_cols: []
+
+df:
+  enabled: true
+  lambda: 0.01
+  epsilon_target: 0.0
+  alpha: 1.0
+  burn_in_epochs: 10
+  fairness_source: val
+  
+ar_model:
+  g_emb_dim: 16
+  x_emb_dim: 32
+  hidden: 128
+  dropout: 0.1
+  lr: 0.001
+  epochs: 50
+  batch_size: 512
+
+context_model:
+  g_emb_dim: 16
+  x_emb_dim: 16
+  hidden: 128
+  out_dim: 128
+
+flow_model:
+  num_couplings: 6
+  hidden: 128
+  lr: 0.001
+  epochs: 100
+  seed: 0
+  batch_size: 512
+
+predictive_model:
+  hidden: [256, 128]
+  dropout: 0.2
+  lr: 0.001
+  epochs: 50
+  ensemble_size: 5
+
+saving:
+  save_optimizers: true
+  save_histories: true
+  save_results: true
+  save_rng_states: true
+  save_environment: true

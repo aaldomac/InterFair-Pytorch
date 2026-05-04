@@ -1,0 +1,60 @@
+# Virtual environments
+.venv/
+venv/
+env/
+*.venv/
+.interfairpytorchvenv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Testing/cache tools
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local environment variables / secrets
+.env
+*.env
+*.key
+*.pem
+
+# Editor/server files
+.vscode/
+.idea/
+
+# Logs and outputs
+logs/
+outputs/
+runs/
+results/
+
+# Models/checkpoints
+saved_models/
+checkpoints/
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.h5
+*.pkl
+*.joblib
+
+# Large numpy/data files
+*.npy
+*.npz
+*.csv
+*.tsv
+*.parquet
+*.hdf5
+
+# OS files
+.DS_Store
+Thumbs.db
