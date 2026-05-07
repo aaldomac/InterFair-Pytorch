@@ -461,6 +461,7 @@ def fit_predictor_schema(
 def transform_predictor(
     df: pd.DataFrame,
     schema: Mapping[str, Any],
+    group_id_col: str = "group_id",
     protected_cols: Sequence[str]=("gender", "race", "native-country"),
     label_col: str="income",
     device: Optional[DeviceLike] = None,
@@ -474,6 +475,7 @@ def transform_predictor(
     """
     _validate_dataframe(df)
     _validate_columns_exist(df, list(protected_cols) + [label_col])
+    _validate_columns_exist(df, group_id_col)
 
     cat_cols = list(schema["cat_cols"])
     cont_cols = list(schema["cont_cols"])
@@ -508,7 +510,11 @@ def transform_predictor(
     X = torch.tensor(X_np, dtype=torch.float32, device=device)
     y = torch.tensor(y_np, dtype=torch.long, device=device)
 
-    return X, y
+    # Compute group IDs for reference (not used in the predictor but may be useful for analysis)
+    g_ids_np = df[group_id_col].astype(np.int64).values
+    g_ids = torch.tensor(g_ids_np, dtype=torch.long, device=device)
+
+    return X, y, g_ids
 
 
 # # -------------------------------------------------------------
@@ -776,7 +782,7 @@ def compute_pg_dirichlet_from_groups(
         return counts.to(torch.long), p_mean
 
     torch.manual_seed(seed)
-    posterior = torch.distributions.Dirichlet(ccounts + alpha_tonc)
+    posterior = torch.distributions.Dirichlet(counts + alpha_t)
     samples = posterior.sample((num_draws,))
 
     lo_q = (1.0 - ci) / 2.0

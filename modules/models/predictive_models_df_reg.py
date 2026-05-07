@@ -321,6 +321,8 @@ def train_single_predictive_model(
         epochs: Maximum number of epochs.
         patience: Early stopping patience.
         device: Target device.
+        df_fair_loader: Optional dataloader yielding (x, y, g) for computing DF penalty.
+        df_cfg: Optional dictionary containing DF regularization config
 
     Returns:
         Trained model with best validation weights restored, and training history.

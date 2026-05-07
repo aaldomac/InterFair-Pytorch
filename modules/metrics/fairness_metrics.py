@@ -433,6 +433,25 @@ def differential_fairness(
     return aggregate, epsilon_matrix, groups, group_rates
 
 
+def per_class_fairness_two_groups(
+    preds_a: torch.Tensor,
+    preds_b: torch.Tensor,
+) -> float:
+    """
+    This function compares element-wise the probabilities assigned to each class of two softmax vectors.
+    Then it returns the absolute log-probability difference across classes in form of a vector of size [n_classes].
+    """
+    # Compute the average predicted probability for each class in group A and group B
+    avg_probs_a = preds_a.mean(axis=0)
+    avg_probs_b = preds_b.mean(axis=0)
+
+    # Compute the absolute log-probability difference across classes
+    epsilon_vector = torch.log(avg_probs_a + 1e-10) - torch.log(avg_probs_b + 1e-10)
+
+    return epsilon_vector
+
+
+
 # UNCERTAINTY BASED METRICS #
 
 def uncertainty_difference_two_groups(

@@ -119,7 +119,9 @@ def train_predictive_model_step(
     criterion: nn.Module, 
     x_batch: ArrayLike, 
     y_batch: ArrayLike, 
-    device: DeviceLike
+    device: DeviceLike,
+    regularizer: Optional[nn.Module]=None,
+    fair_loader: Optional[torch.utils.data.DataLoader]=None,
 ) -> Tuple[torch.Tensor, float]:
     """
     Perform one training step.
@@ -135,12 +137,26 @@ def train_predictive_model_step(
     optimizer.zero_grad(set_to_none=True)
 
     y_pred = model(x_batch_t).squeeze(-1)
-    loss = criterion(y_pred, y_batch_t)
+    task_loss = criterion(y_pred, y_batch_t)
+
+    if regularizer is not None and fair_loader is not None:
+        reg_loss, reg_stats = regularizer(
+            model=model,
+            fair_loader=fair_loader,
+            device=device,
+            epoch=0,  # epoch can be passed if regularizer needs it; here we just use 0 as a placeholder
+        )
+
+    else:
+        reg_loss = torch.tensor(0.0, device=device)
+        reg_stats = {"df_epsilon": 0.0, "df_penalty": 0.0}
+
+    loss = task_loss + reg_loss
 
     loss.backward()
     optimizer.step()
 
-    return y_pred.detach(), float(loss.item())
+    return y_pred.detach(), float(loss.item()), float(task_loss.item()), float(reg_loss.item()), reg_stats
 
 @torch.no_grad()
 def eval_predictive_model_step(
@@ -223,6 +239,8 @@ def train_single_predictive_model(
     epochs: int=50,
     patience: int=5,
     device: Optional[DeviceLike]=None,
+    regularizer: Optional[nn.Module]=None,
+    fair_loader: Optional[torch.utils.data.DataLoader]=None,
 ) -> Tuple[Classifier, Dict[str, List[float]]]:
     """
     Train a single predictive model with early stopping on validation loss.
@@ -260,23 +278,32 @@ def train_single_predictive_model(
         "val_loss": [],
         "train_acc": [],
         "val_acc": [],
+        "task_loss": [],
+        "reg_loss": [],
+        "df_epsilon": [],
     }
 
     for epoch in range(1, epochs + 1):
         model.train()
+        epoch_task_losses: List[float] = []
+        epoch_reg_losses: List[float] = []
         epoch_train_losses: List[float] = []
         train_correct = 0
         train_total = 0
 
         for x_batch, y_batch in train_loader:
-            y_pred, loss = train_predictive_model_step(
+            y_pred, loss, task_loss, reg_loss, reg_stats = train_predictive_model_step(
                 model=model,
                 optimizer=optimizer,
                 criterion=criterion,
                 x_batch=x_batch,
                 y_batch=y_batch,
                 device=device,
+                regularizer=regularizer,
+                fair_loader=fair_loader,
             )
+            epoch_task_losses.append(task_loss)
+            epoch_reg_losses.append(reg_loss)
             epoch_train_losses.append(loss)
 
             y_batch_t = _as_tensor(y_batch, dtype=torch.float32, device=device, name="y_batch")
@@ -287,6 +314,8 @@ def train_single_predictive_model(
         if train_total == 0:
             raise ValueError("No samples found in the training dataloader; cannot compute training accuracy.")
 
+        reg_loss = float(np.mean(epoch_reg_losses))
+        task_loss = float(np.mean(epoch_task_losses))
         train_loss = float(np.mean(epoch_train_losses))
         train_acc = train_correct / train_total
 
@@ -305,8 +334,14 @@ def train_single_predictive_model(
         history["val_loss"].append(val_loss)
         history["train_acc"].append(train_acc)
         history["val_acc"].append(val_acc)
+        history["reg_loss"].append(reg_loss)
+        history["task_loss"].append(task_loss)
 
-        print(f"Epoch {epoch}/{epochs} | Loss: {train_loss:.4f}, Acc: {train_acc:.4f} | Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.4f}")
+        if "df_epsilon" in reg_stats:
+            history["df_epsilon"].append(reg_stats["df_epsilon"])
+            print(f"Epoch {epoch}/{epochs} | Loss: {train_loss:.4f}, Acc: {train_acc:.4f} | Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.4f} | Reg Loss: {reg_loss:.4f}, Task Loss: {task_loss:.4f}, DF Epsilon: {reg_stats['df_epsilon']:.4f}")
+        else:
+            print(f"Epoch {epoch}/{epochs} | Loss: {train_loss:.4f}, Acc: {train_acc:.4f} | Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.4f}")
 
         # ---- Early stopping ----
         if val_loss < best_val_loss:
@@ -417,6 +452,8 @@ def train_predictive_ensemble(
     val_loader: torch.utils.data.DataLoader,
     cfg: Dict[str, Any],
     device: DeviceLike,
+    regularizer: Optional[nn.Module]=None,
+    fair_loader: Optional[torch.utils.data.DataLoader]=None,
 ) -> Tuple[List[Classifier], List[Dict[str, List[float]]]]:
     """
     Train an ensemble of predictive models independently.
@@ -445,7 +482,7 @@ def train_predictive_ensemble(
     epochs = int(cfg["predictive_model"]["epochs"])
     patience = int(cfg["predictive_model"].get("patience", 5))
 
-    trained_models: List(Classifier) = []
+    trained_models: List[Classifier] = []
     all_histories: List[Dict[str, List[float]]] = []
 
     for i, (model, optimizer) in enumerate(zip(models, optimizers), start=1):
@@ -459,6 +496,8 @@ def train_predictive_ensemble(
             epochs=epochs,
             patience=patience,
             device=device,
+            regularizer=regularizer,
+            fair_loader=fair_loader,
         )
 
         trained_models.append(model)

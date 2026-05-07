@@ -28,7 +28,13 @@ from modules.models.predictive_models import (
     evaluate_ensemble,
     train_predictive_ensemble,
 )
-
+from modules.models.generative_models import (
+    ARModel,
+    ContextEncoder, 
+    ConditionalRealNVPFlow, 
+    train_ar_model,
+    train_flow_model,
+)
 from modules.utils.saving_utils import (
     save_full_experiment,
     save_full_reproducibility_bundle
@@ -65,6 +71,8 @@ def parse_arguments():
     parser.add_argument('--seed', type=int, default=42, required=False, help="Seed for reproducibility")
 
     parser.add_argument('--predictive_model_epochs', type=int, default=50, required=False, help='Number of epochs to train the model')
+    parser.add_argument('--ar_epochs', type=int, default=50, required=False, help='Number of epochs to train the AR model')
+    parser.add_argument('--flow_epochs', type=int, default=50, required=False, help='Number of epochs to train the flow model')
 
     parser.add_argument('--batch_size', type=int, default=128, required=False, help='Batch size for training')
     parser.add_argument('--num_models', type=int, default=5, required=False, help='Number of models in the ensemble')
@@ -84,6 +92,12 @@ def apply_cli_overrides(cfg: dict, args):
 
     # if args.save_dir is not None:
     #     cfg["experiment"]["save_dir"] = args.save_dir
+
+    if args.ar_epochs is not None:
+        cfg["ar_model"]["epochs"] = args.ar_epochs
+
+    if args.flow_epochs is not None:
+        cfg["flow_model"]["epochs"] = args.flow_epochs
 
     # if args.predictive_lr is not None:
     #     cfg["predictive_model"]["epochs"] = args.predictive_lr
@@ -147,7 +161,117 @@ def main(cfg: dict):
     X_cat_train, X_cont_train, g_train, vocab_sizes = transform_px(
         df_train, schema_px, group_id_col=cfg["data"]["group_id_col"]
     )
-    print(f"g_train: {g_train.shape}, unique groups: {torch.unique(g_train)}")
+    X_cat_val, X_cont_val, g_val, _ = transform_px(
+        df_val, schema_px, group_id_col=cfg["data"]["group_id_col"]
+    )
+    X_cat_test, X_cont_test, g_test, _ = transform_px(
+        df_test, schema_px, group_id_col=cfg["data"]["group_id_col"]
+    )
+
+    print("X_cat_train size:", len(X_cat_train))
+    print("X_cont_train shape:", X_cont_train.shape)
+
+    num_groups = int(df[cfg["data"]["group_id_col"]].nunique())
+    cont_dim = int(X_cont_train.shape[1])
+
+    # ----------------------------
+    # Build generative models
+    # ----------------------------
+    ar_model = ARModel(
+        vocab_sizes=vocab_sizes,
+        num_groups=num_groups,
+        g_emb_dim=cfg["ar_model"]["g_emb_dim"],
+        x_emb_dim=cfg["ar_model"]["x_emb_dim"],
+        hidden=cfg["ar_model"]["hidden"],
+        dropout=cfg["ar_model"]["dropout"],
+    ).to(device)
+
+    ctx_model = ContextEncoder(
+        vocab_sizes=vocab_sizes,
+        num_groups=num_groups,
+        g_emb_dim=cfg["context_model"]["g_emb_dim"],
+        x_emb_dim=cfg["context_model"]["x_emb_dim"],
+        hidden=cfg["context_model"]["hidden"],
+        out_dim=cfg["context_model"]["out_dim"],
+    ).to(device)
+
+    flow_model = ConditionalRealNVPFlow(
+        dim=cont_dim,
+        context_dim=cfg["context_model"]["out_dim"],
+        num_couplings=cfg["flow_model"]["num_couplings"],
+        hidden=cfg["flow_model"]["hidden"],
+        seed=cfg["flow_model"]["seed"],
+    ).to(device)
+
+    ar_optimizer = torch.optim.Adam(ar_model.parameters(), lr=cfg["ar_model"]["lr"])
+    flow_optimizer = torch.optim.Adam(
+        list(flow_model.parameters()) + list(ctx_model.parameters()),
+        lr=cfg["flow_model"]["lr"]
+    )
+    # ----------------------------
+    # DataLoaders for generative training
+    # ----------------------------
+    ar_train_loader = make_loader(
+        to_tensor_dataset_ar(X_cat_train, g_train),
+        batch_size=cfg["ar_model"]["batch_size"],
+        shuffle=True,
+    )
+    ar_val_loader = make_loader(
+        to_tensor_dataset_ar(X_cat_val, g_val),
+        batch_size=cfg["experiment"]["batch_size"],
+        shuffle=False,
+    )
+
+    flow_train_loader = make_loader(
+        to_tensor_dataset_flow(X_cat_train, X_cont_train, g_train),
+        batch_size=cfg["flow_model"]["batch_size"],
+        shuffle=True,
+    )
+    flow_val_loader = make_loader(
+        to_tensor_dataset_flow(X_cat_val, X_cont_val, g_val),
+        batch_size=cfg["experiment"]["batch_size"],
+        shuffle=False,
+    )
+
+    # ----------------------------
+    # Train generative models
+    # ----------------------------
+    ar_model, ar_train_losses, ar_val_losses = train_ar_model(
+        model=ar_model,
+        optimizer=ar_optimizer,
+        train_loader=ar_train_loader,
+        val_loader=ar_val_loader,
+        epochs=cfg["ar_model"]["epochs"],
+        device=device,
+    )
+
+    flow_model, ctx_model, flow_train_losses, flow_val_losses = train_flow_model(
+        flow_model=flow_model,
+        ctx_model=ctx_model,
+        optimizer=flow_optimizer,
+        train_loader=flow_train_loader,
+        val_loader=flow_val_loader,
+        epochs=cfg["flow_model"]["epochs"],
+        device=device,
+    )
+
+    # ----------------------------
+    # Evaluate generative models on test
+    # ----------------------------
+    ar_model.eval()
+    flow_model.eval()
+    ctx_model.eval()
+
+    with torch.no_grad():
+        x_cat_test_t = torch.as_tensor(X_cat_test, dtype=torch.long, device=device)
+        x_cont_test_t = torch.as_tensor(X_cont_test, dtype=torch.float32, device=device)
+        g_test_t = torch.as_tensor(g_test, dtype=torch.long, device=device)
+
+        logp_cat_test = ar_model.log_prob(x_cat_test_t, g_test_t).detach().cpu().numpy()
+        context_test = ctx_model(x_cat_test_t, g_test_t)
+        logp_cont_test = flow_model.log_prob(x_cont_test_t, context_test).detach().cpu().numpy()
+        logp_x_given_g_test = logp_cat_test + logp_cont_test
+
     # ----------------------------
     # Predictive preprocessing
     # ----------------------------
@@ -158,19 +282,19 @@ def main(cfg: dict):
         log1p_cols=tuple(cfg["preprocessing"]["log1p_cols"]),
     )
 
-    X_pred_train, y_train, g_train = transform_predictor(
+    X_pred_train, y_train = transform_predictor(
         df_train,
         pred_schema,
         protected_cols=tuple(cfg["data"]["protected_attributes"]),
         label_col=cfg["data"]["label_col"],
     )
-    X_pred_val, y_val, g_val = transform_predictor(
+    X_pred_val, y_val = transform_predictor(
         df_val,
         pred_schema,
         protected_cols=tuple(cfg["data"]["protected_attributes"]),
         label_col=cfg["data"]["label_col"],
     )
-    X_pred_test, y_test, g_test = transform_predictor(
+    X_pred_test, y_test = transform_predictor(
         df_test,
         pred_schema,
         protected_cols=tuple(cfg["data"]["protected_attributes"]),
@@ -260,6 +384,32 @@ def main(cfg: dict):
     # Metadata / histories / results
     # ----------------------------
     model_metadata = {
+        "ar_model": {
+            "class": "ARModel",
+            "vocab_sizes": vocab_sizes,
+            "num_groups": num_groups,
+            "g_emb_dim": cfg["ar_model"]["g_emb_dim"],
+            "x_emb_dim": cfg["ar_model"]["x_emb_dim"],
+            "hidden": cfg["ar_model"]["hidden"],
+            "dropout": cfg["ar_model"]["dropout"],
+        },
+        "ctx_model": {
+            "class": "ContextEncoder",
+            "vocab_sizes": vocab_sizes,
+            "num_groups": num_groups,
+            "g_emb_dim": cfg["context_model"]["g_emb_dim"],
+            "x_emb_dim": cfg["context_model"]["x_emb_dim"],
+            "hidden": cfg["context_model"]["hidden"],
+            "out_dim": cfg["context_model"]["out_dim"],
+        },
+        "flow_model": {
+            "class": "ConditionalRealNVPFlow",
+            "dim": cont_dim,
+            "context_dim": cfg["context_model"]["out_dim"],
+            "num_couplings": cfg["flow_model"]["num_couplings"],
+            "hidden": cfg["flow_model"]["hidden"],
+            "seed": cfg["flow_model"]["seed"],
+        },
         "predictive_model": {
             "class": "PredictiveMLP",
             "input_dim": int(X_pred_train.shape[1]),
@@ -290,6 +440,9 @@ def main(cfg: dict):
     }
 
     results_dict = {
+        "logp_cat_test": logp_cat_test,
+        "logp_cont_test": logp_cont_test,
+        "logp_x_given_g_test": logp_x_given_g_test,
         "ensemble_predictions": ensemble_predictions,
         "ensemble_entropy": entropy,
         # "ensemble_lower_bound": lower_bound,
@@ -309,10 +462,15 @@ def main(cfg: dict):
     )
 
     save_full_experiment(
+        ar_model=ar_model,
+        flow_model=flow_model,
+        ctx_model=ctx_model,
         predictive_models=predictive_models,
         config=cfg,
         results_dict=results_dict if cfg["saving"]["save_results"] else None,
         exact_path=exp_root,
+        ar_optimizer=ar_optimizer if cfg["saving"]["save_optimizers"] else None,
+        flow_optimizer=flow_optimizer if cfg["saving"]["save_optimizers"] else None,
         predictive_optimizers=predictive_optimizers if cfg["saving"]["save_optimizers"] else None,
     )
 
