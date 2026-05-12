@@ -1,20 +1,36 @@
-import os
+from __future__ import annotations
+
 import json
-import numpy as np
-import torch
-import sklearn
-import sys
+import os
 import platform
 import random
+import sys
+from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional, Sequence, Union
 
+import joblib
+import numpy as np
+import sklearn
+import torch
+import torch.nn as nn
+
+try:
+    import pandas as pd
+except ImportError:  # pragma: no cover
+    pd = None
+
+try:
+    from modules.pipelines.train_predictive_pipeline import PipelineResult
+except ImportError:  # pragma: no cover
+    PipelineResult = Any
+
+
 PathLike = Union[str, os.PathLike]
 
-from modules.models.predictive_models import (
-    Classifier,
-)
-
+# ---------------------------------------------------------------------
+# GENERIC FILE HELPERS
+# ---------------------------------------------------------------------
 def _ensure_dir(path: PathLike) -> Path:
     """
     Create a directory if it does not exist and return it as a Path.
@@ -34,13 +50,48 @@ def _count_existing_experiments(base_folder: PathLike, prefix: str = "run_") -> 
     return sum(1 for entry in base_path.iterdir() if entry.name.startswith(prefix))
     
 
+def _jsonable(value: Any) -> Any:
+    """Convert common experiment objects into JSON-serializable values."""
+    if is_dataclass(value):
+        return _jsonable(asdict(value))
+
+    if isinstance(value, Path):
+        return str(value)
+
+    if isinstance(value, Mapping):
+        return {str(k): _jsonable(v) for k, v in value.items()}
+
+    if isinstance(value, tuple):
+        return [_jsonable(v) for v in value]
+
+    if isinstance(value, list):
+        return [_jsonable(v) for v in value]
+
+    if isinstance(value, set):
+        return sorted(_jsonable(v) for v in value)
+
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+
+    if isinstance(value, np.generic):
+        return value.item()
+
+    if torch.is_tensor(value):
+        return value.detach().cpu().tolist()
+
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+
+    return str(value)
+
+
 def _json_dump(data: Any, path: PathLike) -> None:
     """
-    Save data as formatted JSON using default=str for non-native objects.
+    Save data as formatted JSON.
     """
     path_obj = Path(path)
     with path_obj.open("w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, default=str)
+        json.dump(_jsonable(data), f, indent=2)
 
 def make_experiment_folder(
     base_folder: PathLike = "saved_models",
@@ -61,60 +112,40 @@ def make_experiment_folder(
 
     return _ensure_dir(folder)
 
-def save_generative_models(
-    ar_model: ARModel, 
-    flow_model:  ConditionalRealNVPFlow, 
-    ctx_model: Optional[ContextEncoder] = None, 
-    folder: Optional[PathLike]=None, 
-    exact_path: Optional[PathLike]=None, 
-    ar_optimizer: Optional[torch.optim.Optimizer]=None, 
-    flow_optimizer: Optional[torch.optim.Optimizer]=None,
-    create_run_subfolder: bool=True
-) -> Path:
-    """
-    Save AR model, Flow model, optional context encoder, and optional optimizers.
+# ---------------------------------------------------------------------
+# MODEL SAVING
+# ---------------------------------------------------------------------
+def _model_metadata(model: nn.Module, index: int) -> Dict[str, Any]:
+    """Best-effort metadata for a PyTorch model."""
+    metadata: Dict[str, Any] = {
+        "index": index,
+        "class": model.__class__.__name__,
+        "module": model.__class__.__module__,
+        "num_parameters": int(sum(p.numel() for p in model.parameters())),
+        "num_trainable_parameters": int(sum(p.numel() for p in model.parameters() if p.requires_grad)),
+    }
 
-    If create_run_subfolder is True, creates a run_*/ folder inside base folder unless
-    exact_path is provided. If False, saves directly into folder/exact_path.
-    """
-    if create_run_subfolder:
-        save_folder = make_experiment_folder(
-            base_folder="saved_models" if folder is None else folder,
-            prefix="run_",
-            exact_path=exact_path,
-        )
-    else:
-        target = exact_path if exact_path is not None else folder
-        if target is None:
-            raise ValueError("Either folder or exact_path must be provided.")
-        save_folder = _ensure_dir(target)
+    # Compatible with the MLPClassifier proposed earlier.
+    for attr in ("input_dim", "num_outputs"):
+        if hasattr(model, attr):
+            metadata[attr] = _jsonable(getattr(model, attr))
 
-    torch.save(ar_model.state_dict(), save_folder / "ar_model.pt")
-    torch.save(flow_model.state_dict(), save_folder / "flow_model.pt")
-
-    if ctx_model is not None:
-        torch.save(ctx_model.state_dict(), save_folder / "ctx_model.pt")
-
-    if ar_optimizer is not None:
-        torch.save(ar_optimizer.state_dict(), save_folder / "ar_optimizer.pt")
-
-    if flow_optimizer is not None:
-        torch.save(flow_optimizer.state_dict(), save_folder / "flow_optimizer.pt")
-
-    return save_folder
+    return metadata
 
 def save_predictive_ensemble(
-    ensemble_models: Sequence[Classifier], 
+    ensemble_models: Sequence[nn.Module], 
     ensemble_folder: Optional[PathLike]=None,
     exact_path: Optional[PathLike]=None,
     ensemble_optimizers: Optional[Sequence[torch.optim.Optimizer]]=None,
     create_run_subfolder: bool=True,
+    metadata: Optional[Mapping[str, Any]] = None,
 ) -> Path:
     """
     Save a list of predictive models and optional optimizers.
     Files:
         predictor_0.pt, predictor_1.pt, ...
         optimizer_0.pt, optimizer_1.pt, ... (optional)
+        predictive_ensemble_metadata.json
     """
     if len(ensemble_models) == 0:
         raise ValueError("ensemble_models must be non-empty.")
@@ -134,17 +165,44 @@ def save_predictive_ensemble(
             raise ValueError("Either ensemble_folder or exact_path must be provided.")
         save_folder = _ensure_dir(target)
 
+    model_metadata = []
     for i, model in enumerate(ensemble_models):
-        torch.save(model.state_dict(), save_folder / f"predictor_{i}.pt")
+        model_path = save_folder / f"predictor_{i}.pt"
+        torch.save(model.state_dict(), model_path)
 
+        item = _model_metadata(model, i)
+        item["state_dict_file"] = model_path.name
+        model_metadata.append(item)
+
+    optimizer_metadata = []
     if ensemble_optimizers is not None:
         for i, optimizer in enumerate(ensemble_optimizers):
-            torch.save(optimizer.state_dict(), save_folder / f"predictor_optimizer_{i}.pt")
+            optimizer_path = save_folder / f"predictor_optimizer_{i}.pt"
+            torch.save(optimizer.state_dict(), optimizer_path)
+            optimizer_metadata.append(
+                {
+                    "index": i,
+                    "class": optimizer.__class__.__name__,
+                    "state_dict_file": optimizer_path.name,
+                }
+            )
+
+    _json_dump(
+        {
+            "models": model_metadata,
+            "optimizers": optimizer_metadata,
+            "extra_metadata": dict(metadata or {}),
+        },
+        save_folder / "predictive_ensemble_metadata.json",
+    )
 
     return save_folder
 
+# ---------------------------------------------------------------------
+# CONFIGS, RESULTS, HISTORIES
+# ---------------------------------------------------------------------
 def save_experiment_config(
-    config: Mapping[str, Any],
+    config: Mapping[str, Any] | Any,
     config_folder: PathLike, 
     save_as_npy: bool = True
 ) -> None:
@@ -153,17 +211,23 @@ def save_experiment_config(
         - config.json
         - config.txt
         - config.npy (optional)
+
+        Accepts plain mappings or dataclass configs such as PipelineConfig
     """
     config_path = _ensure_dir(config_folder)
+    config_obj = _jsonable(config)
 
-    _json_dump(dict(config), config_path / "config.json")
+    _json_dump(config_obj, config_path / "config.json")
 
     with (config_path / "config.txt").open("w", encoding="utf-8") as f:
-        for key, value in config.items():
-            f.write(f"{key}: {value}\n")
+        if isinstance(config_obj, Mapping):
+            for key, value in config_obj.items():
+                f.write(f"{key}: {value}\n")
+        else:
+            f.write(str(config_obj) + "\n")
 
     if save_as_npy:
-        np.save(config_path / "config.npy", dict(config), allow_pickle=True)
+        np.save(config_path / "config.npy", config_obj, allow_pickle=True)
 
 def save_results_dict(
     results_dict: Mapping[str, Any], 
@@ -175,6 +239,7 @@ def save_results_dict(
     Rules:
         - np.ndarray -> .npy
         - torch.Tensor -> .pt and, if possible, .npy
+        - pandas DataFrame -> .csv and .pkl
         - int/float/str/bool/list/dict -> results.json (aggregated when JSON-safe)
         - fallback -> results.txt
     """
@@ -196,13 +261,17 @@ def save_results_dict(
             except Exception:
                 fallback_lines.append(f"{key}: tensor saved as .pt only")
 
+        elif pd is not None and isinstance(value, pd.DataFrame):
+            value.to_csv(path_base.with_suffix(".csv"), index=False)
+            value.to_pickle(path_base.with_suffix(".pkl"))
+
         elif isinstance(value, (int, float, str, bool)) or value is None:
             json_safe[key] = value
 
-        elif isinstance(value, (list, dict)):
+        elif isinstance(value, (list, tuple, dict)):
             try:
-                json.dumps(value)
-                json_safe[key] = value
+                json_safe[key] = _jsonable(value)
+                json.dumps(json_safe[key])
             except TypeError:
                 fallback_lines.append(f"{key}: {str(value)}")
 
@@ -217,93 +286,136 @@ def save_results_dict(
             for line in fallback_lines:
                 f.write(line + "\n")
 
-def save_full_experiment(
-    ar_model: ARModel,
-    flow_model: ConditionalRealNVPFlow,
-    predictive_models: Sequence[Classifier],
-    ctx_model: Optional[ContextEncoder]=None,
-    config: Optional[Mapping[str, Any]]=None,
-    results_dict: Optional[Mapping[str, Any]]=None,
-    base_folder: PathLike="saved_models",
-    exact_path: Optional[PathLike]=None,
-    ar_optimizer: Optional[torch.optim.Optimizer]=None,
-    flow_optimizer: Optional[torch.optim.Optimizer]=None,
-    predictive_optimizers: Optional[Sequence[torch.optim.Optimizer]]=None,
-) -> Path:
+def save_training_histories(
+        histories: Mapping[str, Sequence[Any]] | Sequence[Mapping[str, Sequence[Any]]], 
+        folder: PathLike
+    ) -> None:
     """
-    Create one experiment folder and save all artifacts inside it.
-    """
-    exp_folder = make_experiment_folder(
-        base_folder=base_folder,
-        prefix="experiment_",
-        exact_path=exact_path,
-    )
+    Save training histories.
 
-    gen_folder = _ensure_dir(exp_folder / "generative")
-    save_generative_models(
-        ar_model=ar_model,
-        flow_model=flow_model,
-        ctx_model=ctx_model,
-        folder=gen_folder,
-        ar_optimizer=ar_optimizer,
-        flow_optimizer=flow_optimizer,
-        create_run_subfolder=False,
-    )
-
-    pred_folder = _ensure_dir(exp_folder / "predictive_ensemble")
-    save_predictive_ensemble(
-        ensemble_models=predictive_models,
-        ensemble_folder=pred_folder,
-        ensemble_optimizers=predictive_optimizers,
-        create_run_subfolder=False,
-    )
-
-    if config is not None:
-        save_experiment_config(config, config_folder=exp_folder)
-
-    if results_dict is not None:
-        save_results_dict(results_dict, exp_folder / "results")
-
-    return exp_folder
-
-
-def save_preprocessing_artifacts(
-    schema: Mapping[str, Any],
-    folder: PathLike,
-    protected_cols: Sequence[str] = ("gender", "race", "native-country"),
-    label_col: str = "income",
-    group_col: str = "group",
-    group_id_col: str = "group_id",
-) -> None:
-    """
-    Save preprocessing artifacts needed to reconstruct preprocessing.
+    Accepts either:
+        - one flattened mapping: {"train_loss": [...], "val_loss": [...]}
+        - one history per model: [{"train_loss": [...]}, {"train_loss": [...]}]
     """
     folder_path = _ensure_dir(folder)
 
-    scaler = schema.get("scaler", None)
+    if isinstance(histories, Mapping):
+        normalized: Dict[str, Sequence[Any]] = dict(histories)
+    else:
+        normalized = {}
+        for model_idx, history in enumerate(histories):
+            for key, values in history.items():
+                normalized[f"predictive_{model_idx}_{key}"] = values
+                
+    json_safe: Dict[str, Any] = {}
+    for key, values in histories.items():
+        arr = np.asarray(values)
+        np.save(folder_path / f"{key}.npy", arr)
+        json_safe[key] = arr.tolist()
 
-    artifacts = {
-        "cat_cols": list(schema.get("cat_cols", [])),
-        "cont_cols": list(schema.get("cont_cols", [])),
-        "cat_vocabs": {
-            k: list(v) for k, v in schema.get("cat_vocabs", {}).items()
-        },
-        "log1p_cols": list(schema.get("log1p_cols", [])),
-        "drop_feature_cols": list(schema.get("drop_feature_cols", [])),
-        "protected_cols": list(protected_cols),
-        "label_col": label_col,
-        "group_col": group_col,
-        "group_id_col": group_id_col,
+    _json_dump(json_safe, folder_path / "histories.json")
+
+# ---------------------------------------------------------------------
+# PREPROCESSING ARTIFACTS
+# ---------------------------------------------------------------------
+def _extract_spec_info(schema: Mapping[str, Any]) -> Dict[str, Any]:
+    spec = schema.get("spec")
+    if spec is None:
+        return {}
+
+    return {
+        "dataset_name": getattr(spec, "name", None),
+        "protected_cols": list(getattr(spec, "protected_cols", [])),
+        "label_col": getattr(spec, "label_col", None),
+        "group_col": getattr(spec, "group_col", None),
+        "group_id_col": getattr(spec, "group_id_col", None),
+        "log1p_cols": list(getattr(spec, "log1p_cols", [])),
+        "drop_feature_cols": list(getattr(spec, "drop_feature_cols", [])),
+    }
+
+
+def _extract_scaler_info(scaler: Any) -> Dict[str, Any]:
+    return {
         "scaler_mean": scaler.mean_.tolist() if scaler is not None and hasattr(scaler, "mean_") else None,
         "scaler_scale": scaler.scale_.tolist() if scaler is not None and hasattr(scaler, "scale_") else None,
         "scaler_var": scaler.var_.tolist() if scaler is not None and hasattr(scaler, "var_") else None,
         "scaler_n_features_in": int(scaler.n_features_in_) if scaler is not None and hasattr(scaler, "n_features_in_") else None,
     }
 
-    _json_dump(artifacts, folder_path / "preprocessing.json")
-    np.save(folder_path / "preprocessing.npy", artifacts, allow_pickle=True)
 
+def _extract_ohe_info(ohe: Any) -> Dict[str, Any]:
+    categories = None
+    if ohe is not None and hasattr(ohe, "categories_"):
+        categories = [list(cat) for cat in ohe.categories_]
 
+    return {
+        "ohe_categories": categories,
+        "ohe_n_features_in": int(ohe.n_features_in_) if ohe is not None and hasattr(ohe, "n_features_in_") else None,
+    }
+
+def save_preprocessing_artifacts(
+    schema: Mapping[str, Any],
+    folder: PathLike,
+    name: str = "preprocessing",
+    save_joblib: bool = True,
+) -> None:
+    """
+    Save preprocessing artifacts needed to inspect or reconstruct preprocessing.
+
+    Compatible with both schemas from the latest dataset utilities:
+        - predictor_schema from fit_predictor_schema
+        - px_schema from fit_schema_px
+
+    JSON stores human-readable metadata.
+    Joblib stores the fitted sklearn objects and full schema for exact reuse.
+    """
+    folder_path = _ensure_dir(folder)
+
+    scaler = schema.get("scaler")
+    ohe = schema.get("ohe")
+
+    artifacts: Dict[str, Any] = {
+        "schema_type": "predictor" if "ohe" in schema else "px",
+        "feature_cols": list(schema.get("feature_cols", [])),
+        "cat_cols": list(schema.get("cat_cols", [])),
+        "cont_cols": list(schema.get("cont_cols", [])),
+        "cat_vocabs": {k: list(v) for k, v in schema.get("cat_vocabs", {}).items()},
+        "protected_schema": schema.get("protected_schema", None),
+        "append_protected": schema.get("append_protected", None),
+        "unknown_token": schema.get("unknown_token", None),
+        **_extract_spec_info(schema),
+        **_extract_scaler_info(scaler),
+        **_extract_ohe_info(ohe),
+    }
+
+    _json_dump(artifacts, folder_path / f"{name}.json")
+    np.save(folder_path / f"{name}.npy", _jsonable(artifacts), allow_pickle=True)
+
+    if save_joblib:
+        joblib.dump(dict(schema), folder_path / f"{name}_schema.joblib")
+
+def save_all_preprocessing_artifacts(
+    predictor_schema: Mapping[str, Any],
+    folder: PathLike,
+    px_schema: Optional[Mapping[str, Any]] = None,
+) -> None:
+    folder_path = _ensure_dir(folder)
+    save_preprocessing_artifacts(
+        predictor_schema,
+        folder_path / "predictor",
+        name="predictor_preprocessing",
+    )
+
+    if px_schema is not None:
+        save_preprocessing_artifacts(
+            px_schema,
+            folder_path / "px",
+            name="px_preprocessing",
+        )
+
+# ---------------------------------------------------------------------
+# SPLITS / RNG / ENVIRONMENT
+# ---------------------------------------------------------------------
 def save_split_indices(
     train_idx: Sequence[int],
     val_idx: Sequence[int],
@@ -356,6 +468,8 @@ def save_environment_info(folder: PathLike) -> None:
         "cuda_version": torch.version.cuda,
         "cudnn_version": torch.backends.cudnn.version() if torch.backends.cudnn.is_available() else None,
         "device_count": torch.cuda.device_count(),
+        "cudnn_benchmark": torch.backends.cudnn.benchmark,
+        "cudnn_deterministic": torch.backends.cudnn.deterministic,
     }
 
     if torch.cuda.is_available():
@@ -370,6 +484,75 @@ def save_model_metadata(folder: PathLike, metadata: Mapping[str, Any]) -> None:
     """
     folder_path = _ensure_dir(folder)
     _json_dump(dict(metadata), folder_path / "model_metadata.json")
+
+
+# ---------------------------------------------------------------------
+# FULL EXPERIMENT SAVING
+# ---------------------------------------------------------------------
+def save_full_experiment(
+    predictive_models: Sequence[nn.Module],
+    config: Optional[Mapping[str, Any] | Any]=None,
+    results_dict: Optional[Mapping[str, Any]]=None,
+    base_folder: PathLike="saved_models",
+    exact_path: Optional[PathLike]=None,
+    predictive_optimizers: Optional[Sequence[torch.optim.Optimizer]]=None,
+    predictor_schema: Optional[Mapping[str, Any]] = None,
+    px_schema: Optional[Mapping[str, Any]] = None,
+    histories: Optional[Mapping[str, Sequence[Any]] | Sequence[Mapping[str, Sequence[Any]]]] = None,
+    model_metadata: Optional[Mapping[str, Any]] = None,
+    data_info: Optional[Mapping[str, Any]] = None,
+) -> Path:
+    """
+    Create one experiment folder and save all artifacts inside it.
+    """
+    exp_folder = make_experiment_folder(
+        base_folder=base_folder,
+        prefix="experiment_",
+        exact_path=exact_path,
+    )
+
+    pred_folder = _ensure_dir(exp_folder / "predictive_ensemble")
+    save_predictive_ensemble(
+        ensemble_models=predictive_models,
+        ensemble_folder=pred_folder,
+        ensemble_optimizers=predictive_optimizers,
+        create_run_subfolder=False,
+        metadata=model_metadata,
+    )
+
+    if config is not None:
+        save_experiment_config(config, config_folder=exp_folder)
+
+    if results_dict is not None:
+        save_results_dict(results_dict, exp_folder / "results")
+
+    if predictor_schema is not None:
+        save_all_preprocessing_artifacts(
+            predictor_schema=predictor_schema,
+            px_schema=px_schema,
+            folder=exp_folder / "preprocessing",
+        )
+
+    if histories is not None:
+        save_training_histories(histories, exp_folder / "histories")
+
+    if model_metadata is not None:
+        save_model_metadata(exp_folder / "models", model_metadata)
+
+    if data_info is not None:
+        _ensure_dir(exp_folder / "data")
+        _json_dump(dict(data_info), exp_folder / "data" / "data_info.json")
+
+    save_rng_states(exp_folder / "rng")
+    save_environment_info(exp_folder / "environment")
+
+    return exp_folder
+
+
+
+
+
+
 
 # Example of model metadata
 # model_metadata = {
@@ -407,48 +590,32 @@ def save_model_metadata(folder: PathLike, metadata: Mapping[str, Any]) -> None:
 #     }
 # }
 
-def save_training_histories(histories: Mapping[str, Sequence[Any]], folder: PathLike) -> None:
-    """
-    histories example:
-    {
-        "ar_train_loss": [...],
-        "ar_val_loss": [...],
-        "flow_train_loss": [...],
-        "flow_val_loss": [...],
-        "predictive_0_train_loss": [...],
-        ...
-    }
-    """
-    folder_path = _ensure_dir(folder)
 
-    json_safe: Dict[str, Any] = {}
-    for key, values in histories.items():
-        arr = np.asarray(values)
-        np.save(folder_path / f"{key}.npy", arr)
-        json_safe[key] = arr.tolist()
-
-    _json_dump(json_safe, folder_path / "histories.json")
 
 def save_full_reproducibility_bundle(
     experiment_folder: PathLike,
-    config: Mapping[str, Any],
+    config: Mapping[str, Any] | Any,
     schema: Mapping[str, Any],
-    train_idx: Sequence[int],
-    val_idx: Sequence[int],
-    test_idx: Sequence[int],
-    model_metadata: Mapping[str, Any],
-    histories: Optional[Mapping[str, Sequence[Any]]] = None,
+    train_idx: Optional[Sequence[int]] = None,
+    val_idx: Optional[Sequence[int]] = None,
+    test_idx: Optional[Sequence[int]] = None,
+    model_metadata: Optional[Mapping[str, Any]] = None,
+    histories: Optional[Mapping[str, Sequence[Any]] | Sequence[Mapping[str, Sequence[Any]]]] = None,
     data_info: Optional[Mapping[str, Any]] = None,
+    px_schema: Optional[Mapping[str, Any]] = None,
 ) -> None:
-    """
-    Save the main reproducibility artifacts for an experiment.
-    """
+    """Save the main reproducibility artifacts for an experiment."""
     experiment_path = _ensure_dir(experiment_folder)
 
     save_experiment_config(config, experiment_path)
-    save_preprocessing_artifacts(schema, experiment_path / "preprocessing")
-    save_split_indices(train_idx, val_idx, test_idx, experiment_path / "splits")
-    save_model_metadata(experiment_path / "models", model_metadata)
+    save_all_preprocessing_artifacts(schema, experiment_path / "preprocessing", px_schema=px_schema)
+
+    if train_idx is not None and val_idx is not None and test_idx is not None:
+        save_split_indices(train_idx, val_idx, test_idx, experiment_path / "splits")
+
+    if model_metadata is not None:
+        save_model_metadata(experiment_path / "models", model_metadata)
+
     save_rng_states(experiment_path / "rng")
     save_environment_info(experiment_path / "environment")
 
@@ -458,3 +625,61 @@ def save_full_reproducibility_bundle(
     if data_info is not None:
         _ensure_dir(experiment_path / "data")
         _json_dump(dict(data_info), experiment_path / "data" / "data_info.json")
+
+# ---------------------------------------------------------------------
+# PIPELINE-RESULT SAVING
+# ---------------------------------------------------------------------
+
+def save_pipeline_result(
+    result: PipelineResult,
+    base_folder: PathLike = "saved_models",
+    exact_path: Optional[PathLike] = None,
+) -> Path:
+    """Save the output of `run_predictive_pipeline(...)`."""
+    data = result.data
+
+    results_dict: Dict[str, Any] = {
+        "test_metrics": result.test_metrics,
+        "group_metrics": result.group_metrics,
+    }
+
+    if result.ensemble_metrics is not None:
+        for key, value in result.ensemble_metrics.items():
+            results_dict[f"ensemble_{key}"] = value
+
+    model_metadata = {
+        "dataset_name": data.spec.name,
+        "num_features": data.num_features,
+        "num_classes": data.num_classes,
+        "binary": data.binary,
+        "n_models": len(result.models),
+    }
+
+    data_info = {
+        "dataset_name": data.spec.name,
+        "n_total": len(data.loaded.df),
+        "n_train": len(data.train_df),
+        "n_val": len(data.val_df),
+        "n_test": len(data.test_df),
+        "original_columns": data.loaded.original_columns,
+        "group_id": data.loaded.group_id,
+    }
+
+    if data.loaded.pg_table is not None:
+        results_dict["pg_table"] = data.loaded.pg_table
+
+    if data.loaded.pg is not None:
+        results_dict["pg"] = data.loaded.pg
+
+    return save_full_experiment(
+        predictive_models=result.models,
+        config=result.config,
+        results_dict=results_dict,
+        base_folder=base_folder,
+        exact_path=exact_path,
+        predictor_schema=data.predictor_schema,
+        px_schema=data.px_schema,
+        histories=result.histories,
+        model_metadata=model_metadata,
+        data_info=data_info,
+    )
