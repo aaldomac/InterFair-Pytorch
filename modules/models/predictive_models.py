@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -111,7 +113,7 @@ class Classifier(nn.Module):
         device = next(self.parameters()).device
         y_pred = self.predict(x, threshold=threshold).view(-1)
         y_true_t = _as_tensor(y_true, dtype=torch.long, device=device, name="y_true").view(-1)
-        return float((y_pred == y_true).float().mean().item())
+        return float((y_pred == y_true_t).float().mean().item())
 
 def train_predictive_model_step(
     model: Classifier, 
@@ -219,6 +221,7 @@ def evaluate_predictive_model(
 
         if criterion is not None:
             loss = criterion(probs, y_t)
+            # TODO: Why the * y_t.size(0)? 
             total_loss += float(loss.item()) * y_t.size(0)
     if total_samples == 0:
         raise ValueError("No samples found in the dataloader; cannot compute accuracy.")

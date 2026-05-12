@@ -66,6 +66,22 @@ class CompositeLoss(nn.Module):
         }
         return total, stats
     
+class BinaryClassificationLoss(nn.Module):
+    """
+    BCE with-logits loss for binary BinaryClassificationLoss
+    Expects:
+    - `logits` of shape `(batch_size,)` or `(batch_size, 1)`
+    - `targets` of shape `(batch_size,)` with binary labels in `{0, 1}`
+    """
+    def __init__(self, pos_weight: Optional[torch.Tensor] = None) -> None:
+        super().__init__()
+        self.loss = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+
+    def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        logits = logits.view(-1)
+        targets = targets.float().view(-1)
+        return self.loss(logits, targets)
+    
 class MulticlassClassificationLoss(nn.Module):
     """
     Cross-entropy loss for multi-class classification.

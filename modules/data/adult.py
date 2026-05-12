@@ -1,47 +1,33 @@
+from __future__ import annotations
+
 import os
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import kagglehub
-import numpy as np
 import pandas as pd
-import torch
 
-from torch.utils.data import Dataset, DataLoader, TensorDataset
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
-
-from modules.utils.tensor_utils import (
-    _to_long_tensor,
-    _to_float_tensor,
-    ArrayLike,
-    DeviceLike,
-    _as_tensor,
-)
 
 from modules.utils.dataset_utils import (
+    DatasetSpec,
+    LoadedDataset,
     _validate_dataframe,
     _validate_columns_exist,
-    _infer_cat_and_cont_cols,
-    to_tensor_dataset_ar,
-    to_tensor_dataset_flow,
-    to_tensor_dataset_predictive,
-    make_loader,
-    split_df,
-    split_df_with_indices,
-    fit_schema_px,
-    transform_px,
-    fit_predictor_schema,
-    transform_predictor,
-    TabularDataset,
     compute_pg_dirichlet,
-    compute_pg_dirichlet_from_groups
 )
 
+ADULT_SPEC = DatasetSpec(
+    name="adult",
+    protected_cols=("gender", "race", "native-country"),
+    label_col="income",
+    group_col="group",
+    group_id_col="group_id",
+    log1p_cols=("capital-gain", "capital-loss"),
+)
 
 # -------------------------------------------------------------
 # LOAD DATASETS AND PREPROCESSING
 # -------------------------------------------------------------
-def load_adult_income_dataset(drop_na: bool = True) -> Tuple[pd.DataFrame, List[str]]:
+def load_raw_adult(drop_na: bool = True) -> Tuple[pd.DataFrame, List[str]]:
     """
     Load the Adult Income dataset from Kaggle.
 
@@ -64,7 +50,7 @@ def load_adult_income_dataset(drop_na: bool = True) -> Tuple[pd.DataFrame, List[
     return df, original_columns
 
 
-def preprocess_adult_dataset(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, int]]:
+def preprocess_adult(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, int]]:
     """
     Preprocess the Adult Income dataset.
 
@@ -121,123 +107,101 @@ def preprocess_adult_dataset(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, 
     return df, group_id
 
 
-def load_dataset(dataset_name: str, drop_na: bool = True):
+def load_dataset(
+        *, 
+        drop_na: bool = True,
+        compute_pg: bool = True,
+        pg_alpha: float = 1.0,
+        pg_num_draws: int = 20000,
+        pg_ci: float = 0.95,
+        seed: int = 42,
+    ) -> LoadedDataset:
     """
-    Load and preprocess a supported dataset, then estimate p(g).
-
-    Supported values:
-        - "adult_income"
-        - "compas"
-        - "law_school"
-
-    Returns:
-        df
-        original_columns
-        pg_table
-        pg
+    Standard Adult loader used by `load_dataset_by_name("adult")`.
     """
-    if dataset_name == "adult_income":
-        df, original_columns = load_adult_income_dataset(drop_na=drop_na)
-        df, group_id = preprocess_adult_dataset(df)
-    # elif dataset_name == "compas":
-    #     df, original_columns = load_compas_dataset(drop_na=drop_na)
-    #     df = preprocess_compas_dataset(df)
-    # elif dataset_name == "law_school":
-    #     df, original_columns = load_law_school_dataset(drop_na=drop_na)
-    #     df = preprocess_law_school_dataset(df)
-    else:
-        raise ValueError(f"Unsupported dataset: {dataset_name}")
+    df, original_columns = load_raw_adult(drop_na=drop_na)
+    df, group_id = preprocess_adult(df)
 
-    pg_table, pg = compute_pg_dirichlet(
+    pg_table = None
+    pg = None
+    if compute_pg:
+        pg_table, pg = compute_pg_dirichlet(
+            df=df,
+            group_col=ADULT_SPEC.group_col,
+            alpha=pg_alpha,
+            return_intervals=True,
+            num_draws=pg_num_draws,
+            ci=pg_ci,
+            seed=seed,
+        )
+
+    return LoadedDataset(
         df=df,
-        group_col="group",
-        alpha=1.0,
-        return_intervals=True,
-        num_draws=20000,
-        ci=0.95,
-        seed=42,
+        original_columns=original_columns,
+        group_id=group_id,
+        pg_table=pg_table,
+        pg=pg,
+        metadata={"spec": ADULT_SPEC},
     )
 
-    return df, original_columns, pg_table, pg
 
+# # -------------------------------------------------------------
+# # DATA EXTRACTION
+# # -------------------------------------------------------------
 
+# def get_adult_sets(
+#     df: pd.DataFrame,
+#     protected_cols: Sequence[str]=("gender", "race", "native-country"),
+#     label_col: str="income",
+#     device: Optional[DeviceLike] = None,
+# ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+#     """
+#     Extract X, S, y from the Adult dataset as tensors.
 
-# -------------------------------------------------------------
-# DATA EXTRACTION
-# -------------------------------------------------------------
+#     Returns:
+#         X: float32 tensor of features
+#         S: float32 tensor of protected attributes
+#         y: long tensor of labels
+#     """
+#     _validate_dataframe(df)
+#     _validate_columns_exist(df, list(protected_cols) + [label_col])
 
-def get_adult_sets(
-    df: pd.DataFrame,
-    protected_cols: Sequence[str]=("gender", "race", "native-country"),
-    label_col: str="income",
-    device: Optional[DeviceLike] = None,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """
-    Extract X, S, y from the Adult dataset as tensors.
+#     df = df.copy()
+#     feature_cols = [col for col in df.columns if col not in list(protected_cols) + [label_col, "group", "group_id"]]
 
-    Returns:
-        X: float32 tensor of features
-        S: float32 tensor of protected attributes
-        y: long tensor of labels
-    """
-    _validate_dataframe(df)
-    _validate_columns_exist(df, list(protected_cols) + [label_col])
+#     # cat_cols = [c for c in feature_cols if df[c].dtype == "object"]
+#     # num_cols = [c for c in feature_cols if df[c].dtype != "object"]
 
-    df = df.copy()
-    feature_cols = [col for col in df.columns if col not in list(protected_cols) + [label_col, "group", "group_id"]]
+#     cat_cols, cont_cols = _infer_cat_and_cont_cols(df, feature_cols)
 
-    # cat_cols = [c for c in feature_cols if df[c].dtype == "object"]
-    # num_cols = [c for c in feature_cols if df[c].dtype != "object"]
+#     print(f"Categorical columns are: {cat_cols}")
+#     print(f"Continuous (numerical) columns are: {cont_cols}")
 
-    cat_cols, cont_cols = _infer_cat_and_cont_cols(df, feature_cols)
+#     df_cat = df[cat_cols]
+#     df_cont = df[cont_cols]
 
-    print(f"Categorical columns are: {cat_cols}")
-    print(f"Continuous (numerical) columns are: {cont_cols}")
+#     one_hot_encoder = OneHotEncoder(sparse_output=False, handle_unknown="ignore")
+#     X_cat = one_hot_encoder.fit_transform(df_cat).astype(np.float32) if len(cat_cols) > 0 else np.zeros((len(df), 0), dtype=np.float32)
 
-    df_cat = df[cat_cols]
-    df_cont = df[cont_cols]
+#     scaler = StandardScaler()
+#     X_cont = scaler.fit_transform(df_cont).astype(np.float32) if len(cont_cols) > 0 else np.zeros((len(df), 0), dtype=np.float32)
 
-    one_hot_encoder = OneHotEncoder(sparse_output=False, handle_unknown="ignore")
-    X_cat = one_hot_encoder.fit_transform(df_cat).astype(np.float32) if len(cat_cols) > 0 else np.zeros((len(df), 0), dtype=np.float32)
+#     X_np = np.hstack([X_cont, X_cat]).astype(np.float32)
+#     y_np = df[label_col].astype(np.int64).values
+#     print(f"Label instances\n{df[label_col].value_counts(dropna=False)}")
 
-    scaler = StandardScaler()
-    X_cont = scaler.fit_transform(df_cont).astype(np.float32) if len(cont_cols) > 0 else np.zeros((len(df), 0), dtype=np.float32)
+#     df["gender"] = df["gender"].astype("float32")
+#     df["native-country"] = df["native-country"].astype("float32")
+#     if str(df["race"].dtype) == "category":
+#         df["race"] = df["race"].cat.codes.astype("float32")
+#     else:
+#         df["race"] = df["race"].astype("category").cat.codes.astype("float32")
 
-    X_np = np.hstack([X_cont, X_cat]).astype(np.float32)
-    y_np = df[label_col].astype(np.int64).values
-    print(f"Label instances\n{df[label_col].value_counts(dropna=False)}")
+#     S_np = df[list(protected_cols)].values.astype(np.float32)
 
-    df["gender"] = df["gender"].astype("float32")
-    df["native-country"] = df["native-country"].astype("float32")
-    if str(df["race"].dtype) == "category":
-        df["race"] = df["race"].cat.codes.astype("float32")
-    else:
-        df["race"] = df["race"].astype("category").cat.codes.astype("float32")
+#     X = torch.tensor(X_np, dtype=torch.float32, device=device)
+#     S = torch.tensor(S_np, dtype=torch.float32, device=device)
+#     y = torch.tensor(y_np, dtype=torch.long, device=device)
 
-    S_np = df[list(protected_cols)].values.astype(np.float32)
+#     return X, S, y
 
-    X = torch.tensor(X_np, dtype=torch.float32, device=device)
-    S = torch.tensor(S_np, dtype=torch.float32, device=device)
-    y = torch.tensor(y_np, dtype=torch.long, device=device)
-
-    return X, S, y
-
-
-def get_sets(
-    df: pd.DataFrame, 
-    device: Optional[DeviceLike] = None):
-    """
-    Dispatch to the appropriate dataset-specific extractor based on label columns.
-    """
-    _validate_dataframe(df)
-
-    df = df.copy()
-
-    if "two_year_recid" in df.columns:
-        return get_compas_sets(df, device=device)
-    elif "income" in df.columns:
-        return get_adult_sets(df, device=device)
-    elif "pass_bar" in df.columns:
-        return get_law_school_sets(df, device=device)
-    else:
-        raise ValueError("DataFrame does not contain recognized label columns.")
