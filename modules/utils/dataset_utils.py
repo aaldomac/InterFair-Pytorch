@@ -106,8 +106,8 @@ def _validate_dataframe(df: pd.DataFrame, name: str = "df") -> None:
 
 
 def _validate_columns_exist(df: pd.DataFrame, columns: Sequence[str], df_name: str = "df") -> None:
-    if not isinstance(columns, str):
-        columns = [columns]
+    # if not isinstance(columns, str):
+    #     columns = [columns]
     missing = [col for col in columns if col not in df.columns]
     if missing:
         raise ValueError(f"Missing columns in {df_name}: {missing}")
@@ -146,6 +146,16 @@ def _feature_columns_from_spec(df: pd.DataFrame, spec: DatasetSpec) -> List[str]
         | set(spec.drop_feature_cols)
     )
     return [col for col in df.columns if col not in drop_cols]
+
+def _series_to_str_with_na(s: pd.Series, missing_token: str = "NA") -> pd.Series:
+    """
+    Convert any Series, including categorical Series, to string values with a stable
+    missing-value token.
+
+    This avoids pandas Categorical fillna errors when missing_token is not already
+    an existing category.
+    """
+    return s.astype("object").where(s.notna(), missing_token).astype(str)
 
 # -------------------------------------------------------------
 # TENSOR DATASET HELPERS
@@ -284,7 +294,8 @@ def _fit_protected_schema(
         if _is_numeric_series(s):
             protected_schema[col] = {"kind": "numeric"}
         else:
-            values = s.fillna("NA").astype(str)
+            # values = s.fillna("NA").astype(str)
+            values = _series_to_str_with_na(s)
             categories = pd.Series(values).astype("category").cat.categories.tolist()
             if unknown_token not in categories:
                 categories.append(unknown_token)
@@ -308,7 +319,8 @@ def _transform_protected(
             categories = list(schema["categories"])
             category_to_id = {category: idx for idx, category in enumerate(categories)}
             unk_id = category_to_id[unknown_token]
-            values_str = df[col].fillna("NA").astype(str).to_numpy()
+            # values_str = df[col].fillna("NA").astype(str).to_numpy()
+            values_str = _series_to_str_with_na(df[col]).to_numpy()
             values = np.array([category_to_id.get(v, unk_id) for v in values_str], dtype=np.float32)
 
         columns.append(values.reshape(-1, 1))
@@ -343,7 +355,13 @@ def fit_predictor_schema(
     scaler = StandardScaler()
 
     if len(cat_cols) > 0:
-        ohe.fit(df_train[cat_cols].fillna("NA").astype(str))
+        # ohe.fit(df_train[cat_cols].fillna("NA").astype(str))
+        ohe.fit(
+            pd.DataFrame(
+                {col: _series_to_str_with_na(df_train[col]) for col in cat_cols},
+                index=df_train.index,
+            )
+        )
 
     if len(cont_cols) > 0:
         Xc = df_train[cont_cols].astype(np.float32).copy()
@@ -393,7 +411,12 @@ def transform_predictor_schema(
     scaler = schema["scaler"]
 
     if len(cat_cols) > 0:
-        X_cat = ohe.transform(df[cat_cols].fillna("NA").astype(str)).astype(np.float32)
+        # X_cat = ohe.transform(df[cat_cols].fillna("NA").astype(str)).astype(np.float32)
+        X_cat_df = pd.DataFrame(
+            {col: _series_to_str_with_na(df[col]) for col in cat_cols},
+            index=df.index,
+        )
+        X_cat = ohe.transform(X_cat_df).astype(np.float32)
     else:
         X_cat = np.zeros((len(df), 0), dtype=np.float32)
 
