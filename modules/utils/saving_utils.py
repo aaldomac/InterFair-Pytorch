@@ -308,9 +308,9 @@ def save_training_histories(
                 normalized[f"predictive_{model_idx}_{key}"] = values
                 
     json_safe: Dict[str, Any] = {}
-    for key, values in histories.items():
+    for key, values in normalized.items():
         arr = np.asarray(values)
-        np.save(folder_path / f"{key}.npy", arr)
+        # np.save(folder_path / f"{key}.npy", arr)
         json_safe[key] = arr.tolist()
 
     _json_dump(json_safe, folder_path / "histories.json")
@@ -678,7 +678,6 @@ def save_pipeline_result(
         base_folder=base_folder,
         exact_path=exact_path,
         predictor_schema=data.predictor_schema,
-        px_schema=data.px_schema,
         histories=result.histories,
         model_metadata=model_metadata,
         data_info=data_info,
