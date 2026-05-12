@@ -54,10 +54,14 @@ def evaluate_ensemble(
 
     # [M, N, C] where M is number of models, N is number of samples, C is number of classes
     ensemble_probs = torch.stack(all_models_probs, dim=0)
+    print(f"Ensemble probabilities shape: {ensemble_probs.shape}")
     mean_probs = ensemble_probs.mean(dim=0)
+    print(f"Mean probabilities shape: {mean_probs.shape}")
 
     predictive_entropy = entropy(mean_probs)
+    print(f"Predictive entropy shape: {predictive_entropy.shape}")
     aleatoric_uncertainty = entropy(ensemble_probs).mean(dim=0)
+    print(f"Aleatoric uncertainty shape: {aleatoric_uncertainty.shape}")
     epistemic_uncertainty = predictive_entropy -  aleatoric_uncertainty
     predictions = mean_probs.argmax(dim=1)
 

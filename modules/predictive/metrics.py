@@ -53,4 +53,4 @@ def accuracy_from_logits(
     return float((preds == targets.long().view(-1)).float().mean().item())
 
 def entropy(probs: torch.Tensor, eps: float = 1e-10) -> torch.Tensor:
-    return -(probs * torch.log(probs.clamp_min(eps))).sum(dim=1)
+    return -(probs * torch.log(probs.clamp_min(eps))).sum(dim=-1)
