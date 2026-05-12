@@ -1,15 +1,55 @@
-import itertools
-import torch
-import math
+from __future__ import annotations
 
-from modules.metrics.performance_metrics import (
-    true_positive_rate,
-    false_positive_rate,
+import itertools
+import math
+from dataclasses import dataclass
+from typing import Any, Dict, Mapping, Optional, Sequence, Tuple, Union
+
+import numpy as np
+import torch
+
+try:
+    import pandas as pd
+except ImportError:  # pragma: no cover
+    pd = None
+
+from modules.utils.dataset_utils import compute_pg_dirichlet_from_groups
+
+TensorLike = Union[torch.Tensor, np.ndarray, Sequence[float], Sequence[int]]
+
+from modules.utils.tensor_utils import (
+    _as_tensor,
+    _as_1d_tensor,
+    _validate_same_length,
+    _unique_sorted_long,
+    _safe_mean,
 )
-from modules.utils.dataset_utils import (
-    compute_pg_dirichlet, 
-    compute_pg_dirichlet_from_groups,
-)
+
+# ==================================================
+# Result containers
+# ==================================================
+
+@dataclass
+class PairwiseFairnessResult:
+    """Container for group fairness metrics."""
+
+    aggregate: float
+    matrix: torch.Tensor
+    groups: torch.Tensor
+    per_group_values: Optional[torch.Tensor] = None
+
+
+@dataclass
+class SubgroupFairnessResult:
+    """Container for subgroup-vs-population fairness metrics."""
+
+    aggregate: float
+    values: torch.Tensor
+    groups: torch.Tensor
+    global_value: float
+    group_values: torch.Tensor
+    group_probs: torch.Tensor
+    
 # ==================================================
 # Helpers
 # ==================================================
@@ -34,10 +74,10 @@ def _build_pairwise_matrix(
     diagonal_value: float,
 ) -> torch.Tensor:
     """
-    Build a symmetric pairwise matrix M where M[i,j] is the pairwise metric
-    between group unique_groups[i] and unique_groups[j].
+    Build a symmetric pairwise matrix M where M[i, j] is the pairwise metric
+    between group unique_groups[i] and group unique_groups[j].
 
-    pairwise_fn(i, j) must return a float.
+    pairwise_fn(i, j) must return a scalar.
     """
     n_groups = len(unique_groups)
     matrix = torch.full((n_groups, n_groups), float(diagonal_value), dtype=torch.float32)
@@ -55,7 +95,7 @@ def _max_off_diagonal(matrix: torch.Tensor) -> float:
     if n < 2:
         return 0.0
     mask = ~torch.eye(n, dtype=torch.bool, device=matrix.device)
-    return matrix[mask].max().item()
+    return float(matrix[mask].max().item())
 
 
 def _min_off_diagonal(matrix: torch.Tensor) -> float:
@@ -63,7 +103,7 @@ def _min_off_diagonal(matrix: torch.Tensor) -> float:
     if n < 2:
         return 1.0
     mask = ~torch.eye(n, dtype=torch.bool, device=matrix.device)
-    return matrix[mask].min().item()
+    return float(matrix[mask].min().item())
 
 
 # ==================================================
