@@ -1,3 +1,5 @@
+import torch
+
 from modules.pipelines.train_predictive_pipeline import (
     PipelineConfig,
     SplitConfig,
@@ -9,6 +11,16 @@ from modules.pipelines.train_predictive_pipeline import (
 from modules.predictive.trainer import TrainConfig
 
 from modules.utils.saving_utils import save_pipeline_result
+
+from modules.metrics.fairness_metrics import (
+    evaluate_ensemble_fairness_from_loader,
+    fairness_summary_to_frame,
+)
+
+from modules.metrics.distribution_decomposition_metrics import (
+    group_distribution_analysis_from_ensemble_outputs,
+    group_entropy_decompositions_to_frame,
+)
 
 if __name__ == "__main__":
     config = PipelineConfig(
@@ -44,10 +56,53 @@ if __name__ == "__main__":
         for key, value in result.ensemble_metrics.items():
             print(f"{key}: shape={value.shape}")
 
-    # Save the results and artifacts of the pipeline run
-    experiment_folder = save_pipeline_result(
-    result,
-    base_folder="saved_models",
+    fairness = evaluate_ensemble_fairness_from_loader(
+        result.ensemble_metrics,
+        result.data.test_loader,
+        binary=result.data.binary,
+        threshold=result.config.train.threshold,
+        positive_class=1,
+        alpha=1.0,
     )
 
-    print(f"Saved experiment to: {experiment_folder}")
+    summary = fairness_summary_to_frame(fairness)
+    print(summary)
+
+    # Useful scalar examples:
+    print(f"Statistical parity aggregate: {fairness['statistical_parity']['aggregate']}")
+    print(f"Aleatoric uncertainty pairwise aggregate: {fairness['uncertainty']['aleatoric_uncertainty']['pairwise_aggregate']}")
+    print(f"Epistemic uncertainty pairwise aggregate: {fairness['uncertainty']['epistemic_uncertainty']['pairwise_aggregate']}")
+
+    # Save together with experiment outputs:
+    result.test_metrics["statistical_parity"] = fairness["statistical_parity"]["aggregate"]
+
+    # Evaluate entropy-like measures and comparisons
+    group_ids = []
+    for x, y, g in result.data.test_loader:
+        group_ids.append(g)
+    group_ids = torch.cat(group_ids)
+
+    analysis = group_distribution_analysis_from_ensemble_outputs(
+        result.ensemble_metrics,
+        group_ids=group_ids,
+    )
+
+    decomp_df = group_entropy_decompositions_to_frame(
+        analysis["group_entropy_decompositions"]
+    )
+
+    print(decomp_df)
+
+    matrices = analysis["pairwise_group_mean_distribution_matrices"]
+
+    print(matrices["kl"])               # KL(mean_i || mean_j)
+    print(matrices["symmetric_kl"])     # KL(i||j) + KL(j||i)
+    print(matrices["class_log_ratio"])  # [num_groups, num_groups, num_classes]
+
+    # # Save the results and artifacts of the pipeline run
+    # experiment_folder = save_pipeline_result(
+    #     result,
+    #     base_folder="saved_models",
+    # )
+
+    # print(f"Saved experiment to: {experiment_folder}")
