@@ -66,6 +66,7 @@ def evaluate_ensemble(
     predictions = mean_probs.argmax(dim=1)
 
     return {
+        "ensemble_probs": ensemble_probs.numpy(),
         "mean_probs": mean_probs.numpy(),
         "predictions": predictions.numpy(),
         "predictive_entropy": predictive_entropy.numpy(),
