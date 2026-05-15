@@ -6,7 +6,7 @@ import torch
 
 from modules.utils.tensor_utils import _as_tensor, _as_1d_tensor, _validate_same_length
 
-
+# TODO: Consider if the positive_class argument is necessary.
 def prediction_scores_to_labels(
     preds: torch.Tensor,
     *,
@@ -87,6 +87,7 @@ def accuracy(preds: torch.Tensor, labels: torch.Tensor) -> float:
 
     return float((pred_labels == labels_t).float().mean().item())
 
+# TODO: This function is not OK for multiclass.
 def true_positive_rate(
     preds: torch.Tensor,
     labels: torch.Tensor,
