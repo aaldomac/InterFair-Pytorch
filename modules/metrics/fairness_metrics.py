@@ -1,43 +1,73 @@
+from __future__ import annotations
+
 import itertools
-import torch
 import math
+from dataclasses import dataclass
+from typing import Any, Dict, Mapping, Optional, Sequence, Tuple, Union
+
+import numpy as np
+import torch
+
+try:
+    import pandas as pd
+except ImportError:  # pragma: no cover
+    pd = None
+
+TensorLike = Union[torch.Tensor, np.ndarray, Sequence[float], Sequence[int]]
 
 from modules.metrics.performance_metrics import (
     true_positive_rate,
     false_positive_rate,
+    prediction_scores_to_labels,
+    positive_class_scores,
 )
-from modules.utils.dataset_utils import (
-    compute_pg_dirichlet, 
-    compute_pg_dirichlet_from_groups,
+from modules.utils.dataset_utils import compute_pg_dirichlet_from_groups
+from modules.utils.tensor_utils import (
+    _as_tensor,
+    _as_1d_tensor,
+    _validate_same_length,
+    _unique_sorted_long,
 )
+
+
 # ==================================================
-# Helpers
+# Result containers
 # ==================================================
+@dataclass
+class PairwiseFairnessResult:
+    """Container for group fairness metrics."""
 
-def _positive_prediction_rate(preds: torch.Tensor, threshold: float = 0.5) -> float:
-    if preds.numel() == 0:
-        return 0.0
-    return (preds >= threshold).float().mean().item()
-
-
-def _group_data(group_ids: torch.Tensor):
-    """
-    Returns:
-        unique_groups: tensor of shape (n_groups,)
-    """
-    return torch.unique(group_ids)
+    aggregate: float
+    matrix: torch.Tensor
+    groups: torch.Tensor
+    per_group_values: Optional[torch.Tensor] = None
 
 
+@dataclass
+class SubgroupFairnessResult:
+    """Container for subgroup-vs-population fairness metrics."""
+
+    aggregate: float
+    values: torch.Tensor
+    groups: torch.Tensor
+    global_value: float
+    group_values: torch.Tensor
+    group_probs: torch.Tensor
+
+
+# ==================================================
+# Generic helpers
+# ==================================================
 def _build_pairwise_matrix(
     unique_groups: torch.Tensor,
     pairwise_fn,
     diagonal_value: float,
 ) -> torch.Tensor:
     """
-    Build a symmetric pairwise matrix M where M[i,j] is the pairwise metric
-    between group unique_groups[i] and unique_groups[j].
+    Build a symmetric pairwise matrix M where M[i, j] is the pairwise metric
+    between group unique_groups[i] and group unique_groups[j].
 
-    pairwise_fn(i, j) must return a float.
+    pairwise_fn(i, j) must return a scalar.
     """
     n_groups = len(unique_groups)
     matrix = torch.full((n_groups, n_groups), float(diagonal_value), dtype=torch.float32)
@@ -55,7 +85,7 @@ def _max_off_diagonal(matrix: torch.Tensor) -> float:
     if n < 2:
         return 0.0
     mask = ~torch.eye(n, dtype=torch.bool, device=matrix.device)
-    return matrix[mask].max().item()
+    return float(matrix[mask].max().item())
 
 
 def _min_off_diagonal(matrix: torch.Tensor) -> float:
@@ -63,11 +93,76 @@ def _min_off_diagonal(matrix: torch.Tensor) -> float:
     if n < 2:
         return 1.0
     mask = ~torch.eye(n, dtype=torch.bool, device=matrix.device)
-    return matrix[mask].min().item()
+    return float(matrix[mask].min().item())
+
+
+def _positive_prediction_rate(preds: torch.Tensor, threshold: float = 0.5) -> float:
+    """
+    Positive prediction rate for binary hard labels or binary scores.
+    P(Y_hat=1) or P(score >= threshold).
+    """
+    preds = preds.view(-1)
+    if preds.numel() == 0:
+        return 0.0
+    return float((preds >= threshold).float().mean().item())
+
+# TODO: Think if this function makes sense and will be used
+def _class_prediction_rate(pred_labels: torch.Tensor, positive_class: int = 1) -> float:
+    pred_labels = pred_labels.view(-1).long()
+    if pred_labels.numel() == 0:
+        return 0.0
+    return float((pred_labels == positive_class).float().mean().item())
+
+
+def _positive_scores(
+    predictions_or_probs: TensorLike,
+    *,
+    binary: bool = True,
+    threshold: float = 0.5,
+    positive_class: int = 1,
+) -> torch.Tensor:
+    """
+    Return binary positive-class scores or multiclass one-vs-rest hard indicators.
+    Number of correct predictions.
+    """
+    x = _as_tensor(predictions_or_probs)
+
+    if binary:
+        if x.ndim == 2 and x.shape[1] == 2:
+            return x[:, positive_class].float().view(-1)
+        if x.ndim == 2 and x.shape[1] == 1:
+            return x.squeeze(1).float().view(-1)
+        if x.ndim == 1:
+            return x.float().view(-1)
+        raise ValueError(f"Unsupported binary prediction shape: {tuple(x.shape)}")
+
+    labels = prediction_scores_to_labels(
+        x,
+        binary=False,
+        threshold=threshold,
+        positive_class=positive_class,
+    )
+    return (labels == positive_class).float()
+
+# TODO: Consider if this function makes sense and will be used
+def _rate_for_positive_class(
+    predictions_or_probs: TensorLike,
+    *,
+    binary: bool = True,
+    threshold: float = 0.5,
+    positive_class: int = 1,
+) -> float:
+    scores = _positive_scores(
+        predictions_or_probs,
+        binary=binary,
+        threshold=threshold,
+        positive_class=positive_class,
+    )
+    return _positive_prediction_rate(scores, threshold=threshold if binary else 0.5)
 
 
 # ==================================================
-# Pairwise metrics (2 groups only)
+# Pairwise prediction metrics: two groups
 # ==================================================
 
 def statistical_parity_two_groups(
@@ -75,9 +170,7 @@ def statistical_parity_two_groups(
     preds_b: torch.Tensor,
     threshold: float = 0.5,
 ) -> float:
-    """
-    | P(\hat{Y}=1 | A) - P(\hat{Y}=1 | B) |
-    """
+    """| P(predicted positive | A) - P(predicted positive | B) |."""
     rate_a = _positive_prediction_rate(preds_a, threshold)
     rate_b = _positive_prediction_rate(preds_b, threshold)
     return abs(rate_a - rate_b)
@@ -88,12 +181,23 @@ def equal_opportunity_two_groups(
     labels_a: torch.Tensor,
     preds_b: torch.Tensor,
     labels_b: torch.Tensor,
+    *,
+    threshold: float = 0.5,
+    positive_class: int = 1,
 ) -> float:
-    """
-    | TPR(A) - TPR(B) |
-    """
-    tpr_a = true_positive_rate(preds_a, labels_a)
-    tpr_b = true_positive_rate(preds_b, labels_b)
+    """| TPR(A) - TPR(B) |."""
+    tpr_a = true_positive_rate(
+        preds_a,
+        labels_a,
+        threshold=threshold,
+        positive_class=positive_class,
+    )
+    tpr_b = true_positive_rate(
+        preds_b,
+        labels_b,
+        threshold=threshold,
+        positive_class=positive_class,
+    )
     return abs(tpr_a - tpr_b)
 
 
@@ -106,8 +210,7 @@ def disparate_impact_two_groups(
     Symmetric disparate impact ratio:
         min(rate_a, rate_b) / max(rate_a, rate_b)
 
-    Range: [0, 1]
-    Best value: 1
+    Range: [0, 1]. Best value: 1.
     """
     rate_a = _positive_prediction_rate(preds_a, threshold)
     rate_b = _positive_prediction_rate(preds_b, threshold)
@@ -126,48 +229,69 @@ def equalized_odds_two_groups(
     labels_a: torch.Tensor,
     preds_b: torch.Tensor,
     labels_b: torch.Tensor,
+    *,
+    threshold: float = 0.5,
+    positive_class: int = 1,
 ) -> float:
-    """
-    max( |TPR(A)-TPR(B)| , |FPR(A)-FPR(B)| )
-    """
-    tpr_a = true_positive_rate(preds_a, labels_a)
-    tpr_b = true_positive_rate(preds_b, labels_b)
+    """max(|TPR(A)-TPR(B)|, |FPR(A)-FPR(B)|)."""
+    tpr_a = true_positive_rate(
+        preds_a,
+        labels_a,
+        threshold=threshold,
+        positive_class=positive_class,
+    )
+    tpr_b = true_positive_rate(
+        preds_b,
+        labels_b,
+        threshold=threshold,
+        positive_class=positive_class,
+    )
 
-    fpr_a = false_positive_rate(preds_a, labels_a)
-    fpr_b = false_positive_rate(preds_b, labels_b)
+    fpr_a = false_positive_rate(
+        preds_a,
+        labels_a,
+        threshold=threshold,
+        positive_class=positive_class,
+    )
+    fpr_b = false_positive_rate(
+        preds_b,
+        labels_b,
+        threshold=threshold,
+        positive_class=positive_class,
+    )
 
-    tpr_diff = abs(tpr_a - tpr_b)
-    fpr_diff = abs(fpr_a - fpr_b)
-
-    return max(tpr_diff, fpr_diff)
+    return max(abs(tpr_a - tpr_b), abs(fpr_a - fpr_b))
 
 
 # ==================================================
-# Full metrics returning:
-#   aggregate_value, pairwise_matrix, unique_groups
+# Full prediction metrics
 # ==================================================
 
 def statistical_parity(
-    preds: torch.Tensor,
-    group_ids: torch.Tensor,
+    preds: TensorLike,
+    group_ids: TensorLike,
     threshold: float = 0.5,
-):
+) -> Tuple[float, torch.Tensor, torch.Tensor]:
     """
     Returns:
         aggregate: max pairwise statistical parity gap
-        matrix: [n_groups, n_groups] absolute pairwise gaps
-        groups: group labels in matrix order
+        matrix: [G, G] absolute pairwise gaps
+        groups: group IDs in matrix order
     """
-    groups = _group_data(group_ids)
+    preds_t = _as_1d_tensor(preds, dtype=torch.float32, name="preds")
+    group_ids_t = _as_1d_tensor(group_ids, dtype=torch.long, name="group_ids")
+    _validate_same_length(preds=preds_t, group_ids=group_ids_t)
+
+    groups = _unique_sorted_long(group_ids_t, name="group_ids")
 
     if len(groups) < 2:
         matrix = torch.zeros((len(groups), len(groups)), dtype=torch.float32)
         return 0.0, matrix, groups
 
-    def pairwise_fn(i, j):
+    def pairwise_fn(i: int, j: int) -> float:
         g1, g2 = groups[i], groups[j]
-        preds_g1 = preds[group_ids == g1]
-        preds_g2 = preds[group_ids == g2]
+        preds_g1 = preds_t[group_ids_t == g1]
+        preds_g2 = preds_t[group_ids_t == g2]
         return statistical_parity_two_groups(preds_g1, preds_g2, threshold)
 
     matrix = _build_pairwise_matrix(groups, pairwise_fn, diagonal_value=0.0)
@@ -180,60 +304,62 @@ def equal_opportunity(
     preds: torch.Tensor,
     labels: torch.Tensor,
     group_ids: torch.Tensor,
+    *,
+    threshold: float = 0.5,
+    positive_class: int = 1,
 ):
-    """
-    Returns:
-        aggregate: max pairwise TPR gap
-        matrix: [n_groups, n_groups] absolute pairwise TPR gaps
-        groups: group labels in matrix order
-    """
-    groups = _group_data(group_ids)
+    preds_t = _as_1d_tensor(preds, dtype=torch.long, name="preds")
+    labels_t = _as_1d_tensor(labels, dtype=torch.long, name="labels")
+    group_ids_t = _as_1d_tensor(group_ids, dtype=torch.long, name="group_ids")
+    _validate_same_length(preds=preds_t, labels=labels_t, group_ids=group_ids_t)
+
+    groups = _unique_sorted_long(group_ids_t, name="group_ids")
 
     if len(groups) < 2:
         matrix = torch.zeros((len(groups), len(groups)), dtype=torch.float32)
         return 0.0, matrix, groups
 
-    def pairwise_fn(i, j):
+    def pairwise_fn(i: int, j: int) -> float:
         g1, g2 = groups[i], groups[j]
-        mask1 = (group_ids == g1)
-        mask2 = (group_ids == g2)
+        mask1 = group_ids_t == g1
+        mask2 = group_ids_t == g2
         return equal_opportunity_two_groups(
-            preds[mask1], labels[mask1],
-            preds[mask2], labels[mask2],
+            preds_t[mask1], labels_t[mask1],
+            preds_t[mask2], labels_t[mask2],
+            threshold=threshold,
+            positive_class=positive_class,
         )
 
     matrix = _build_pairwise_matrix(groups, pairwise_fn, diagonal_value=0.0)
     aggregate = _max_off_diagonal(matrix)
-
     return aggregate, matrix, groups
 
 
 def disparate_impact(
-    preds: torch.Tensor,
-    group_ids: torch.Tensor,
+    preds: TensorLike,
+    group_ids: TensorLike,
     threshold: float = 0.5,
-):
+) -> Tuple[float, torch.Tensor, torch.Tensor]:
     """
     Returns:
         aggregate: worst pairwise DI ratio = minimum off-diagonal entry
-        matrix: [n_groups, n_groups] symmetric pairwise DI ratios
-        groups: group labels in matrix order
-
-    Notes:
-        - diagonal is 1.0
-        - lower is worse
-        - 1.0 is perfect parity
+        matrix: [G, G] symmetric pairwise DI ratios
+        groups: group IDs in matrix order
     """
-    groups = _group_data(group_ids)
+    preds_t = _as_1d_tensor(preds, dtype=torch.float32, name="preds")
+    group_ids_t = _as_1d_tensor(group_ids, dtype=torch.long, name="group_ids")
+    _validate_same_length(preds=preds_t, group_ids=group_ids_t)
+
+    groups = _unique_sorted_long(group_ids_t, name="group_ids")
 
     if len(groups) < 2:
         matrix = torch.ones((len(groups), len(groups)), dtype=torch.float32)
         return 1.0, matrix, groups
 
-    def pairwise_fn(i, j):
+    def pairwise_fn(i: int, j: int) -> float:
         g1, g2 = groups[i], groups[j]
-        preds_g1 = preds[group_ids == g1]
-        preds_g2 = preds[group_ids == g2]
+        preds_g1 = preds_t[group_ids_t == g1]
+        preds_g2 = preds_t[group_ids_t == g2]
         return disparate_impact_two_groups(preds_g1, preds_g2, threshold)
 
     matrix = _build_pairwise_matrix(groups, pairwise_fn, diagonal_value=1.0)
@@ -246,99 +372,123 @@ def equalized_odds(
     preds: torch.Tensor,
     labels: torch.Tensor,
     group_ids: torch.Tensor,
+    *,
+    threshold: float = 0.5,
+    positive_class: int = 1,
 ):
-    """
-    Returns:
-        aggregate: max pairwise equalized-odds gap
-        matrix: [n_groups, n_groups] pairwise equalized-odds gaps
-        groups: group labels in matrix order
-    """
-    groups = _group_data(group_ids)
+    preds_t = _as_1d_tensor(preds, dtype=torch.long, name="preds")
+    labels_t = _as_1d_tensor(labels, dtype=torch.long, name="labels")
+    group_ids_t = _as_1d_tensor(group_ids, dtype=torch.long, name="group_ids")
+    _validate_same_length(preds=preds_t, labels=labels_t, group_ids=group_ids_t)
+
+    groups = _unique_sorted_long(group_ids_t, name="group_ids")
 
     if len(groups) < 2:
         matrix = torch.zeros((len(groups), len(groups)), dtype=torch.float32)
         return 0.0, matrix, groups
 
-    def pairwise_fn(i, j):
+    def pairwise_fn(i: int, j: int) -> float:
         g1, g2 = groups[i], groups[j]
-        mask1 = (group_ids == g1)
-        mask2 = (group_ids == g2)
+        mask1 = group_ids_t == g1
+        mask2 = group_ids_t == g2
         return equalized_odds_two_groups(
-            preds[mask1], labels[mask1],
-            preds[mask2], labels[mask2],
+            preds_t[mask1], labels_t[mask1],
+            preds_t[mask2], labels_t[mask2],
+            threshold=threshold,
+            positive_class=positive_class,
         )
 
     matrix = _build_pairwise_matrix(groups, pairwise_fn, diagonal_value=0.0)
     aggregate = _max_off_diagonal(matrix)
-
     return aggregate, matrix, groups
 
-# INTERSECTIONAL FAIRNESS METRICS #
+
+# ==================================================
+# Intersectional subgroup fairness
+# ==================================================
 
 def subgroup_statistical_parity_fairness_one_group(
     preds_group: torch.Tensor,
     preds_all: torch.Tensor,
     group_probability: float,
     threshold: float = 0.5,
-):
+) -> float:
     """
     Single-subgroup fairness violation:
-
-        P(g) * | P(\hat{Y}=1) - P(\hat{Y}=1 | g) |
-
-    This is NOT pairwise. It compares one subgroup against the full population.
+        P(g) * | P(predicted positive) - P(predicted positive | g) |
     """
     global_rate = _positive_prediction_rate(preds_all, threshold)
     group_rate = _positive_prediction_rate(preds_group, threshold)
-    return group_probability * abs(global_rate - group_rate)
+    return float(group_probability) * abs(global_rate - group_rate)
 
 
 def subgroup_statistical_parity(
-    preds: torch.Tensor,
-    group_ids: torch.Tensor,
+    preds: TensorLike,
+    group_ids: TensorLike,
     threshold: float = 0.5,
-):
+    alpha: float = 1.0,
+) -> Tuple[float, torch.Tensor, torch.Tensor, float, torch.Tensor, torch.Tensor]:
     """
+    Group-vs-global subgroup statistical parity.
+
     Returns:
         aggregate: max subgroup fairness violation
-        values: [n_groups] tensor with P(g)*|P(\hat{Y}=1)-P(\hat{Y}=1|g)|
-        groups: group labels in the same order as values
-        global_rate: P(\hat{Y}=1)
-        group_rates: [n_groups] tensor with P(\hat{Y}=1|g)
-        group_probs: [n_groups] tensor with P(g)
-
-    Notes:
-        - This metric is group-vs-global, not pairwise.
-        - Therefore the natural output is a vector, not a matrix.
+        values: [G] tensor with P(g)*|P(predicted positive)-P(predicted positive|g)|
+        groups: group IDs in the same order as values
+        global_rate: P(predicted positive)
+        group_rates: [G] tensor with P(predicted positive|g)
+        group_probs: [G] tensor with smoothed P(g)
     """
-    groups = torch.unique(group_ids)
-    n_total = len(group_ids)
+    preds_t = _as_1d_tensor(preds, dtype=torch.float32, name="preds")
+    group_ids_t = _as_1d_tensor(group_ids, dtype=torch.long, name="group_ids")
+    _validate_same_length(preds=preds_t, group_ids=group_ids_t)
+
+    groups = _unique_sorted_long(group_ids_t, name="group_ids")
 
     if len(groups) == 0:
         empty = torch.empty(0, dtype=torch.float32)
         return 0.0, empty, groups, 0.0, empty, empty
 
-    global_rate = _positive_prediction_rate(preds, threshold)
+    global_rate = _positive_prediction_rate(preds_t, threshold)
+
+    # compute_pg_dirichlet_from_groups expects group IDs in [0, K-1].
+    # To support arbitrary group labels, remap to contiguous IDs in the same order as `groups`.
+    group_to_idx = {int(g.item()): i for i, g in enumerate(groups)}
+    contiguous = torch.tensor(
+        [group_to_idx[int(g.item())] for g in group_ids_t],
+        dtype=torch.long,
+        device=group_ids_t.device,
+    )
+    _, group_probs = compute_pg_dirichlet_from_groups(contiguous, K=len(groups), alpha=alpha)
+    group_probs = group_probs.detach().cpu().float()
 
     values = []
     group_rates = []
-    group_probs = compute_pg_dirichlet_from_groups(group_ids, groups)
 
-    for g in groups:
-        mask = (group_ids == g)
-        preds_g = preds[mask]
-
-        values = subgroup_statistical_parity_fairness_one_group(
-            preds_g, preds, group_probability=group_probs[len(values)], threshold=threshold
+    for idx, g in enumerate(groups):
+        mask = group_ids_t == g
+        preds_g = preds_t[mask]
+        group_rate = _positive_prediction_rate(preds_g, threshold)
+        group_rates.append(group_rate)
+        values.append(
+            subgroup_statistical_parity_fairness_one_group(
+                preds_g,
+                preds_t,
+                group_probability=float(group_probs[idx].item()),
+                threshold=threshold,
+            )
         )
-        values.append(values)
 
-    values = torch.tensor(values, dtype=torch.float32)
+    values_t = torch.tensor(values, dtype=torch.float32)
+    group_rates_t = torch.tensor(group_rates, dtype=torch.float32)
+    aggregate = float(values_t.max().item()) if values_t.numel() > 0 else 0.0
 
-    aggregate = values.max().item() if len(values) > 0 else 0.0
+    return aggregate, values_t, groups, global_rate, group_rates_t, group_probs
 
-    return aggregate, values
 
+# ==================================================
+# Differential fairness
+# ==================================================
 
 def _smoothed_positive_rate(
     preds: torch.Tensor,
@@ -346,16 +496,18 @@ def _smoothed_positive_rate(
     alpha: float = 1.0,
 ) -> float:
     """
-    Smoothed estimate of P(\hat{Y}=1) for binary predictions.
+    Smoothed estimate of P(predicted positive) for binary predictions.
 
     p = (n_pos + alpha) / (n + 2*alpha)
     """
+    preds = preds.view(-1)
     n = preds.numel()
     if n == 0:
-        return 0.5  # neutral fallback for empty group
+        return 0.5
 
     n_pos = (preds >= threshold).float().sum().item()
-    return (n_pos + alpha) / (n + 2.0 * alpha)
+    return float((n_pos + alpha) / (n + 2.0 * alpha))
+
 
 def differential_fairness_two_groups(
     preds_a: torch.Tensor,
@@ -364,14 +516,12 @@ def differential_fairness_two_groups(
     alpha: float = 1.0,
 ) -> float:
     """
-    Pairwise epsilon for binary Differential Fairness.
+    Pairwise epsilon for binary differential fairness.
 
-    epsilon_{ab} = max(
-        |log P(\hat{Y}=1|a) - log P(\hat{Y}=1|b)|,
-        |log P(\hat{Y}=0|a) - log P(\hat{Y}=0|b)|
+    epsilon_ab = max(
+        |log P(predicted positive | a) - log P(predicted positive | b)|,
+        |log P(predicted negative | a) - log P(predicted negative | b)|,
     )
-
-    Smoothed probabilities are used to avoid log(0).
     """
     p_a = _smoothed_positive_rate(preds_a, threshold, alpha)
     p_b = _smoothed_positive_rate(preds_b, threshold, alpha)
@@ -383,46 +533,47 @@ def differential_fairness_two_groups(
 
 
 def differential_fairness(
-    preds: torch.Tensor,
-    group_ids: torch.Tensor,
+    preds: TensorLike,
+    group_ids: TensorLike,
     threshold: float = 0.5,
     alpha: float = 1.0,
-):
+) -> Tuple[float, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Returns:
         aggregate: maximum pairwise epsilon across all group pairs
-        epsilon_matrix: [n_groups, n_groups] pairwise DF epsilons
-        groups: group labels in matrix order
-        group_rates: [n_groups] smoothed P(\hat{Y}=1|g)
-
-    Notes:
-        - diagonal is 0
-        - larger epsilon means worse fairness
+        epsilon_matrix: [G, G] pairwise DF epsilons
+        groups: group IDs in matrix order
+        group_rates: [G] smoothed P(predicted positive | g)
     """
-    groups = torch.unique(group_ids)
+    preds_t = _as_1d_tensor(preds, dtype=torch.float32, name="preds")
+    group_ids_t = _as_1d_tensor(group_ids, dtype=torch.long, name="group_ids")
+    _validate_same_length(preds=preds_t, group_ids=group_ids_t)
+
+    groups = _unique_sorted_long(group_ids_t, name="group_ids")
 
     if len(groups) == 0:
         empty_vec = torch.empty(0, dtype=torch.float32)
         empty_mat = torch.empty((0, 0), dtype=torch.float32)
         return 0.0, empty_mat, groups, empty_vec
 
-    group_rates = []
-    for g in groups:
-        preds_g = preds[group_ids == g]
-        group_rates.append(_smoothed_positive_rate(preds_g, threshold, alpha))
-
-    group_rates = torch.tensor(group_rates, dtype=torch.float32)
+    group_rates = torch.tensor(
+        [_smoothed_positive_rate(preds_t[group_ids_t == g], threshold, alpha) for g in groups],
+        dtype=torch.float32,
+    )
 
     n_groups = len(groups)
     epsilon_matrix = torch.zeros((n_groups, n_groups), dtype=torch.float32)
 
     for i, j in itertools.combinations(range(n_groups), 2):
         g1, g2 = groups[i], groups[j]
-        preds_g1 = preds[group_ids == g1]
-        preds_g2 = preds[group_ids == g2]
+        preds_g1 = preds_t[group_ids_t == g1]
+        preds_g2 = preds_t[group_ids_t == g2]
 
         eps_ij = differential_fairness_two_groups(
-            preds_g1, preds_g2, threshold=threshold, alpha=alpha
+            preds_g1,
+            preds_g2,
+            threshold=threshold,
+            alpha=alpha,
         )
 
         epsilon_matrix[i, j] = eps_ij
@@ -433,62 +584,416 @@ def differential_fairness(
     return aggregate, epsilon_matrix, groups, group_rates
 
 
-# UNCERTAINTY BASED METRICS #
+# ==================================================
+# Probability-vector fairness
+# ==================================================
+
+def per_class_fairness_two_groups(
+    probs_a: torch.Tensor,
+    probs_b: torch.Tensor,
+    eps: float = 1e-10,
+) -> torch.Tensor:
+    """
+    Per-class absolute log-probability gap between two groups.
+
+    Args:
+        probs_a: [N_a, C]
+        probs_b: [N_b, C]
+
+    Returns:
+        epsilon_vector: [C]
+    """
+    if probs_a.ndim != 2 or probs_b.ndim != 2:
+        raise ValueError("probs_a and probs_b must have shape [N, C].")
+    if probs_a.shape[1] != probs_b.shape[1]:
+        raise ValueError("probs_a and probs_b must have the same number of classes.")
+
+    avg_probs_a = probs_a.float().mean(dim=0)
+    avg_probs_b = probs_b.float().mean(dim=0)
+
+    # return torch.abs(torch.log(avg_probs_a.clamp_min(eps)) - torch.log(avg_probs_b.clamp_min(eps)))
+    return torch.log(avg_probs_a.clamp_min(eps)) - torch.log(avg_probs_b.clamp_min(eps))
+
+
+def per_class_fairness(
+    probs: TensorLike,
+    group_ids: TensorLike,
+    *,
+    eps: float = 1e-10,
+) -> Tuple[float, torch.Tensor, torch.Tensor]:
+    """
+    Pairwise per-class log-probability fairness.
+
+    Returns:
+        aggregate: max over all group pairs and classes
+        tensor: [G, G, C] pairwise class-wise gaps
+        groups: group IDs in tensor order
+    """
+    probs_t = _as_tensor(probs, dtype=torch.float32)
+    group_ids_t = _as_1d_tensor(group_ids, dtype=torch.long, name="group_ids")
+
+    if probs_t.ndim != 2:
+        raise ValueError(f"probs must have shape [N, C], got {tuple(probs_t.shape)}.")
+    _validate_same_length(probs=probs_t[:, 0], group_ids=group_ids_t)
+
+    groups = _unique_sorted_long(group_ids_t, name="group_ids")
+    n_groups = len(groups)
+    n_classes = probs_t.shape[1]
+
+    tensor = torch.zeros((n_groups, n_groups, n_classes), dtype=torch.float32)
+
+    for i, j in itertools.combinations(range(n_groups), 2):
+        g1, g2 = groups[i], groups[j]
+        gap = per_class_fairness_two_groups(
+            probs_t[group_ids_t == g1],
+            probs_t[group_ids_t == g2],
+            eps=eps,
+        )
+        tensor[i, j, :] = gap
+        tensor[j, i, :] = gap
+    # TODO: Consider if this aggregate makes sense. Because it is not considering the max vector disparity (which is not easy to calculate) but the max element disparity, which may be less meaningful.
+    aggregate = float(tensor.max().item()) if tensor.numel() > 0 else 0.0
+    return aggregate, tensor, groups
+
+
+# ==================================================
+# Uncertainty-based metrics
+# ==================================================
 
 def uncertainty_difference_two_groups(
     uncertainty_a: torch.Tensor,
     uncertainty_b: torch.Tensor,
 ) -> float:
-    """
-    Pairwise uncertainty difference based on negative log-probabilities.
+    """| E[uncertainty | A] - E[uncertainty | B] |."""
+    u_a = float(uncertainty_a.float().mean().item()) if uncertainty_a.numel() > 0 else 0.0
+    u_b = float(uncertainty_b.float().mean().item()) if uncertainty_b.numel() > 0 else 0.0
+    return abs(u_a - u_b)
 
-    | E[-log P(\hat{Y}|a)] - E[-log P(\hat{Y}|b)] |
-
-    This can be applied to any probabilistic model, including AR models and flows.
-    """
-
-    return abs(uncertainty_a - uncertainty_b)
 
 def uncertainty_difference(
-    uncertainties: torch.Tensor,
-    group_ids: torch.Tensor,
-):
+    uncertainties: TensorLike,
+    group_ids: TensorLike,
+) -> Tuple[float, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Returns:
         aggregate: max pairwise uncertainty difference across groups
-        matrix: [n_groups, n_groups] pairwise uncertainty differences
-        groups: group labels in matrix order
-        group_uncertainties: [n_groups] average uncertainty per group
-
-    Notes:
-        - diagonal is 0
-        - larger values mean worse fairness
+        matrix: [G, G] pairwise uncertainty differences
+        groups: group IDs in matrix order
+        group_uncertainties: [G] average uncertainty per group
     """
-    groups = torch.unique(group_ids)
+    uncertainties_t = _as_1d_tensor(uncertainties, dtype=torch.float32, name="uncertainties")
+    group_ids_t = _as_1d_tensor(group_ids, dtype=torch.long, name="group_ids")
+    _validate_same_length(uncertainties=uncertainties_t, group_ids=group_ids_t)
+
+    groups = _unique_sorted_long(group_ids_t, name="group_ids")
 
     if len(groups) == 0:
         empty_vec = torch.empty(0, dtype=torch.float32)
         empty_mat = torch.empty((0, 0), dtype=torch.float32)
         return 0.0, empty_mat, groups, empty_vec
 
-    group_uncertainties = []
-    for g in groups:
-        group_uncertainties.append(uncertainties[group_ids == g].mean().item())
+    group_uncertainties = torch.tensor(
+        [uncertainties_t[group_ids_t == g].mean().item() for g in groups],
+        dtype=torch.float32,
+    )
 
-    group_uncertainties = torch.tensor(group_uncertainties, dtype=torch.float32)
+    def pairwise_fn(i: int, j: int) -> float:
+        g1, g2 = groups[i], groups[j]
+        return uncertainty_difference_two_groups(
+            uncertainties_t[group_ids_t == g1],
+            uncertainties_t[group_ids_t == g2],
+        )
 
-    n_groups = len(groups)
-    matrix = torch.zeros((n_groups, n_groups), dtype=torch.float32)
-
-    for i, j in itertools.combinations(range(n_groups), 2):
-        u_i = group_uncertainties[i]
-        u_j = group_uncertainties[j]
-
-        diff_ij = uncertainty_difference_two_groups(u_i, u_j)
-
-        matrix[i, j] = diff_ij
-        matrix[j, i] = diff_ij
-
+    matrix = _build_pairwise_matrix(groups, pairwise_fn, diagonal_value=0.0)
     aggregate = _max_off_diagonal(matrix)
 
     return aggregate, matrix, groups, group_uncertainties
+
+
+def subgroup_uncertainty_difference(
+    uncertainties: TensorLike,
+    group_ids: TensorLike,
+    alpha: float = 1.0,
+) -> Tuple[float, torch.Tensor, torch.Tensor, float, torch.Tensor, torch.Tensor]:
+    """
+    Group-vs-global uncertainty disparity.
+
+    Returns:
+        aggregate: max P(g) * |E[U] - E[U|g]|
+        values: [G]
+        groups: [G]
+        global_uncertainty: scalar
+        group_uncertainties: [G]
+        group_probs: [G]
+    """
+    uncertainties_t = _as_1d_tensor(uncertainties, dtype=torch.float32, name="uncertainties")
+    group_ids_t = _as_1d_tensor(group_ids, dtype=torch.long, name="group_ids")
+    _validate_same_length(uncertainties=uncertainties_t, group_ids=group_ids_t)
+
+    groups = _unique_sorted_long(group_ids_t, name="group_ids")
+
+    if len(groups) == 0:
+        empty = torch.empty(0, dtype=torch.float32)
+        return 0.0, empty, groups, 0.0, empty, empty
+
+    global_uncertainty = float(uncertainties_t.mean().item())
+
+    group_to_idx = {int(g.item()): i for i, g in enumerate(groups)}
+    contiguous = torch.tensor(
+        [group_to_idx[int(g.item())] for g in group_ids_t],
+        dtype=torch.long,
+        device=group_ids_t.device,
+    )
+    _, group_probs = compute_pg_dirichlet_from_groups(contiguous, K=len(groups), alpha=alpha)
+    group_probs = group_probs.detach().cpu().float()
+
+    group_uncertainties = torch.tensor(
+        [uncertainties_t[group_ids_t == g].mean().item() for g in groups],
+        dtype=torch.float32,
+    )
+    values = group_probs * torch.abs(group_uncertainties - global_uncertainty)
+    aggregate = float(values.max().item()) if values.numel() > 0 else 0.0
+
+    return aggregate, values, groups, global_uncertainty, group_uncertainties, group_probs
+
+
+# ==================================================
+# Ensemble-output integration
+# ==================================================
+
+def _extract_labels_and_groups_from_loader(loader) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Extract y and group IDs from a loader yielding `(x, y, g, *rest)`."""
+    labels = []
+    groups = []
+
+    for batch in loader:
+        if len(batch) < 3:
+            raise ValueError("Expected loader batches to contain at least `(x, y, group_ids)`.")
+        labels.append(_as_tensor(batch[1], dtype=torch.long).view(-1).cpu())
+        groups.append(_as_tensor(batch[2], dtype=torch.long).view(-1).cpu())
+
+    if len(labels) == 0:
+        raise ValueError("Loader is empty.")
+
+    return torch.cat(labels, dim=0), torch.cat(groups, dim=0)
+
+
+def evaluate_ensemble_fairness(
+    ensemble_outputs: Mapping[str, Any],
+    labels: TensorLike,
+    group_ids: TensorLike,
+    *,
+    binary: bool = True,
+    threshold: float = 0.5,
+    positive_class: int = 1,
+    alpha: float = 1.0,
+) -> Dict[str, Any]:
+    """Evaluate fairness disparities for ensemble predictions and uncertainties.
+
+    Expected `ensemble_outputs` keys from the latest ensemble evaluator:
+        - `mean_probs`: [N, C]
+        - `predictions`: [N], optional; recomputed from `mean_probs` if absent
+        - `predictive_entropy`: [N]
+        - `aleatoric_uncertainty`: [N]
+        - `epistemic_uncertainty`: [N]
+
+    Returns a nested dictionary with scalar aggregates, matrices/vectors, and group IDs.
+    """
+    labels_t = _as_1d_tensor(labels, dtype=torch.long, name="labels")
+    group_ids_t = _as_1d_tensor(group_ids, dtype=torch.long, name="group_ids")
+
+    mean_probs = _as_tensor(ensemble_outputs["mean_probs"], dtype=torch.float32, name="mean_probs")
+
+    if "predictions" in ensemble_outputs:
+        pred_labels = _as_1d_tensor(ensemble_outputs["predictions"], dtype=torch.long, name="predictions",)
+    else:
+        pred_labels = prediction_scores_to_labels(mean_probs, threshold=threshold, positive_class=positive_class,)
+
+    positive_scores = positive_class_scores(mean_probs, positive_class=positive_class,)
+
+    sp_agg, sp_matrix, sp_groups = statistical_parity(positive_scores, group_ids_t, threshold=threshold)
+    di_agg, di_matrix, di_groups = disparate_impact(positive_scores, group_ids_t, threshold=threshold)
+    eo_agg, eo_matrix, eo_groups = equal_opportunity(pred_labels, labels_t, group_ids_t, threshold=threshold, positive_class=positive_class,)
+
+    eodds_agg, eodds_matrix, eodds_groups = equalized_odds(pred_labels, labels_t, group_ids_t, threshold=threshold, positive_class=positive_class,)
+    df_agg, df_matrix, df_groups, df_group_rates = differential_fairness(positive_scores, group_ids_t, threshold=threshold, alpha=alpha,)
+    ssp = subgroup_statistical_parity(positive_scores, group_ids_t, threshold=threshold,alpha=alpha,)
+
+    per_class = None
+    if mean_probs.ndim == 2:
+        pc_agg, pc_tensor, pc_groups = per_class_fairness(mean_probs, group_ids_t)
+        per_class = {
+            "aggregate": pc_agg,
+            "tensor": pc_tensor,
+            "groups": pc_groups,
+        }
+
+    uncertainty_results: Dict[str, Any] = {}
+    uncertainty_key_map = {
+        "predictive_entropy": "predictive_entropy",
+        "aleatoric_uncertainty": "aleatoric_uncertainty",
+        "aleatoric_uncertainty": "aleatoric_uncertainty",
+        "epistemic_uncertainty": "epistemic_uncertainty",
+    }
+
+    for input_key, output_key in uncertainty_key_map.items():
+        if input_key not in ensemble_outputs:
+            continue
+
+        u = _as_1d_tensor(ensemble_outputs[input_key], dtype=torch.float32, name=input_key)
+        _validate_same_length(uncertainty=u, group_ids=group_ids_t)
+
+        u_agg, u_matrix, u_groups, u_group_values = uncertainty_difference(u, group_ids_t)
+        su = subgroup_uncertainty_difference(u, group_ids_t, alpha=alpha)
+
+        uncertainty_results[output_key] = {
+            "pairwise_aggregate": u_agg,
+            "pairwise_matrix": u_matrix,
+            "groups": u_groups,
+            "group_uncertainties": u_group_values,
+            "subgroup_aggregate": su[0],
+            "subgroup_values": su[1],
+            "global_uncertainty": su[3],
+            "subgroup_group_uncertainties": su[4],
+            "group_probs": su[5],
+        }
+
+    return {
+        "statistical_parity": {
+            "aggregate": sp_agg,
+            "matrix": sp_matrix,
+            "groups": sp_groups,
+        },
+        "disparate_impact": {
+            "aggregate": di_agg,
+            "matrix": di_matrix,
+            "groups": di_groups,
+        },
+        "equal_opportunity": {
+            "aggregate": eo_agg,
+            "matrix": eo_matrix,
+            "groups": eo_groups,
+        },
+        "equalized_odds": {
+            "aggregate": eodds_agg,
+            "matrix": eodds_matrix,
+            "groups": eodds_groups,
+        },
+        "differential_fairness": {
+            "aggregate": df_agg,
+            "matrix": df_matrix,
+            "groups": df_groups,
+            "group_rates": df_group_rates,
+        },
+        "subgroup_statistical_parity": {
+            "aggregate": ssp[0],
+            "values": ssp[1],
+            "groups": ssp[2],
+            "global_rate": ssp[3],
+            "group_rates": ssp[4],
+            "group_probs": ssp[5],
+        },
+        "per_class_fairness": per_class,
+        "uncertainty": uncertainty_results,
+    }
+
+
+def evaluate_ensemble_fairness_from_loader(
+    ensemble_outputs: Mapping[str, Any],
+    loader,
+    *,
+    binary: bool = True,
+    threshold: float = 0.5,
+    positive_class: int = 1,
+    alpha: float = 1.0,
+) -> Dict[str, Any]:
+    """Convenience wrapper for test loaders yielding `(X, y, group_ids)`."""
+    labels, group_ids = _extract_labels_and_groups_from_loader(loader)
+    return evaluate_ensemble_fairness(
+        ensemble_outputs,
+        labels=labels,
+        group_ids=group_ids,
+        binary=binary,
+        threshold=threshold,
+        positive_class=positive_class,
+        alpha=alpha,
+    )
+
+
+def fairness_summary_to_frame(fairness: Mapping[str, Any]):
+    """Convert scalar fairness aggregates to a small pandas DataFrame."""
+    if pd is None:
+        raise ImportError("pandas is required for fairness_summary_to_frame.")
+
+    rows = []
+
+    for key in [
+        "statistical_parity",
+        "disparate_impact",
+        "equal_opportunity",
+        "equalized_odds",
+        "differential_fairness",
+        "subgroup_statistical_parity",
+    ]:
+        if key in fairness and fairness[key] is not None:
+            rows.append({"metric": key, "value": fairness[key]["aggregate"]})
+
+    for uncertainty_name, item in fairness.get("uncertainty", {}).items():
+        rows.append(
+            {
+                "metric": f"{uncertainty_name}_pairwise_difference",
+                "value": item["pairwise_aggregate"],
+            }
+        )
+        rows.append(
+            {
+                "metric": f"{uncertainty_name}_subgroup_difference",
+                "value": item["subgroup_aggregate"],
+            }
+        )
+
+    if fairness.get("per_class_fairness") is not None:
+        rows.append(
+            {
+                "metric": "per_class_fairness",
+                "value": fairness["per_class_fairness"]["aggregate"],
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
+# ==================================================
+# Intended usage
+# ==================================================
+
+"""
+After running the predictive pipeline with an ensemble:
+
+from modules.metrics.fairness_metrics import (
+    evaluate_ensemble_fairness_from_loader,
+    fairness_summary_to_frame,
+)
+
+result = run_predictive_pipeline(config)
+
+fairness = evaluate_ensemble_fairness_from_loader(
+    result.ensemble_metrics,
+    result.data.test_loader,
+    binary=result.data.binary,
+    threshold=result.config.train.threshold,
+    positive_class=1,
+    alpha=1.0,
+)
+
+summary = fairness_summary_to_frame(fairness)
+print(summary)
+
+# Useful scalar examples:
+print(fairness["statistical_parity"]["aggregate"])
+print(fairness["uncertainty"]["aleatoric_uncertainty"]["pairwise_aggregate"])
+print(fairness["uncertainty"]["epistemic_uncertainty"]["pairwise_aggregate"])
+
+# Save together with experiment outputs:
+result.test_metrics["statistical_parity"] = fairness["statistical_parity"]["aggregate"]
+"""
