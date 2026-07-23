@@ -15,11 +15,8 @@ from modules.utils.dataset_utils import (
     fit_predictor_schema,
     load_dataset,
     make_loader,
-    to_tensor_dataset_ar,
-    to_tensor_dataset_flow,
     to_tensor_dataset_predictive,
     transform_predictor,
-    transform_px,
 )
 
 
@@ -258,25 +255,6 @@ def reconstruct_test_data(
 
     group_id_col = cfg["data"].get("group_id_col", px_artifacts.get("group_id_col", "group_id"))
 
-    X_cat_train, X_cont_train, g_train, vocab_sizes = transform_px(
-        df_train,
-        schema_px,
-        group_id_col=group_id_col,
-        device=device,
-    )
-    X_cat_val, X_cont_val, g_val, _ = transform_px(
-        df_val,
-        schema_px,
-        group_id_col=group_id_col,
-        device=device,
-    )
-    X_cat_test, X_cont_test, g_test, _ = transform_px(
-        df_test,
-        schema_px,
-        group_id_col=group_id_col,
-        device=device,
-    )
-
     pred_schema_file = exp_path / "predictor_schema.json"
     if pred_schema_file.exists():
         pred_schema, _ = load_predictor_schema(exp_path)
@@ -316,22 +294,12 @@ def reconstruct_test_data(
         "df_train": df_train,
         "df_val": df_val,
         "df_test": df_test,
-        "X_cat_train": X_cat_train,
-        "X_cont_train": X_cont_train,
-        "g_train": g_train,
-        "X_cat_val": X_cat_val,
-        "X_cont_val": X_cont_val,
-        "g_val": g_val,
-        "X_cat_test": X_cat_test,
-        "X_cont_test": X_cont_test,
-        "g_test": g_test,
         "X_pred_train": X_pred_train,
         "y_train": y_train,
         "X_pred_val": X_pred_val,
         "y_val": y_val,
         "X_pred_test": X_pred_test,
         "y_test": y_test,
-        "vocab_sizes": vocab_sizes,
         "num_groups": num_groups,
     }
 
@@ -413,53 +381,11 @@ def load_all_models(
     device: DeviceLike,
     debug_flow: bool = False,
     keep_last_batch_flow: bool = False,
-) -> Tuple[ARModel, Optional[ContextEncoder], ConditionalRealNVPFlow, list[Classifier], Dict[str, Any]]:
+) -> Tuple[list[Classifier], Dict[str, Any]]:
     """
     Rebuild and load all saved models.
     """
     model_metadata = load_model_metadata(exp_folder)
-
-    ar_meta = model_metadata["ar_model"]
-    flow_meta = model_metadata["flow_model"]
-    ctx_meta = model_metadata.get("ctx_model")
-
-    ar_model = ARModel(
-        vocab_sizes=ar_meta["vocab_sizes"],
-        num_groups=int(ar_meta["num_groups"]),
-        g_emb_dim=int(ar_meta["g_emb_dim"]),
-        x_emb_dim=int(ar_meta["x_emb_dim"]),
-        hidden=int(ar_meta["hidden"]),
-        dropout=float(ar_meta.get("dropout", 0.0)),
-        num_layers=int(ar_meta.get("num_layers", 1)),
-    ).to(device)
-
-    ctx_model = None
-    if ctx_meta is not None:
-        ctx_model = ContextEncoder(
-            vocab_sizes=ctx_meta["vocab_sizes"],
-            num_groups=int(ctx_meta["num_groups"]),
-            g_emb_dim=int(ctx_meta["g_emb_dim"]),
-            x_emb_dim=int(ctx_meta["x_emb_dim"]),
-            hidden=int(ctx_meta["hidden"]),
-            out_dim=int(ctx_meta["out_dim"]),
-        ).to(device)
-
-    flow_model = ConditionalRealNVPFlow(
-        dim=int(flow_meta["dim"]),
-        context_dim=int(flow_meta["context_dim"]),
-        num_couplings=int(flow_meta["num_couplings"]),
-        hidden=int(flow_meta["hidden"]),
-        seed=flow_meta.get("seed"),
-        debug=debug_flow,
-        keep_last_batch=keep_last_batch_flow,
-    ).to(device)
-
-    gen_paths = _resolve_generative_paths(exp_folder)
-    ar_model = load_model_state(ar_model, gen_paths["ar"], device)
-    flow_model = load_model_state(flow_model, gen_paths["flow"], device)
-
-    if ctx_model is not None and gen_paths["ctx"] is not None:
-        ctx_model = load_model_state(ctx_model, gen_paths["ctx"], device)
 
     predictive_models = build_predictive_models_from_metadata(model_metadata, device)
     pred_folder = _resolve_predictive_folder(exp_folder)
@@ -468,7 +394,7 @@ def load_all_models(
         model_path = pred_folder / f"predictor_{i}.pt"
         predictive_models[i] = load_model_state(model, model_path, device)
 
-    return ar_model, ctx_model, flow_model, predictive_models, model_metadata
+    return predictive_models, model_metadata
 
 
 # -------------------------------------------------------------
@@ -476,9 +402,6 @@ def load_all_models(
 # -------------------------------------------------------------
 def load_optimizers_if_available(
     exp_folder: PathLike,
-    ar_model: ARModel,
-    ctx_model: Optional[ContextEncoder],
-    flow_model: ConditionalRealNVPFlow,
     predictive_models: Sequence[Classifier],
     cfg: Mapping[str, Any],
     device: DeviceLike = "cpu",
@@ -489,28 +412,7 @@ def load_optimizers_if_available(
     exp_path = _as_path(exp_folder)
     optimizers: Dict[str, Any] = {}
 
-    gen_folder = _resolve_existing_path(
-        exp_path / "generative",
-        exp_path / "generative" / "run_0",
-    )
     pred_folder = _resolve_predictive_folder(exp_folder)
-
-    ar_optimizer = torch.optim.Adam(ar_model.parameters(), lr=cfg["ar_model"]["lr"])
-
-    if ctx_model is None:
-        flow_params = list(flow_model.parameters())
-    else:
-        flow_params = list(flow_model.parameters()) + list(ctx_model.parameters())
-
-    flow_optimizer = torch.optim.Adam(flow_params, lr=cfg["flow_model"]["lr"])
-
-    ar_opt_path = gen_folder / "ar_optimizer.pt"
-    flow_opt_path = gen_folder / "flow_optimizer.pt"
-
-    if ar_opt_path.exists():
-        ar_optimizer = load_optimizer_state(ar_optimizer, ar_opt_path, device=device)
-    if flow_opt_path.exists():
-        flow_optimizer = load_optimizer_state(flow_optimizer, flow_opt_path, device=device)
 
     predictive_optimizers = []
     for i, model in enumerate(predictive_models):
@@ -520,102 +422,12 @@ def load_optimizers_if_available(
             opt = load_optimizer_state(opt, opt_path, device=device)
         predictive_optimizers.append(opt)
 
-    optimizers["ar_optimizer"] = ar_optimizer
-    optimizers["flow_optimizer"] = flow_optimizer
     optimizers["predictive_optimizers"] = predictive_optimizers
     return optimizers
 
 # -------------------------------------------------------------
 # TESTING
 # -------------------------------------------------------------
-
-def test_generative_models(
-    ar_model: ARModel,
-    ctx_model: ContextEncoder,
-    flow_model: ConditionalRealNVPFlow,
-    data_dict: Mapping[str, Any],
-    device: DeviceLike,
-    batch_size: int,
-) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    Evaluate AR and flow models on the test split.
-
-    Returns:
-        gen_df: per-sample DataFrame
-        summary: grouped summary by test group
-    """
-    ar_loader = make_loader(
-        to_tensor_dataset_ar(data_dict["X_cat_test"], data_dict["g_test"]),
-        batch_size=batch_size,
-        shuffle=False,
-    )
-    flow_loader = make_loader(
-        to_tensor_dataset_flow(
-            data_dict["X_cat_test"],
-            data_dict["X_cont_test"],
-            data_dict["g_test"],
-        ),
-        batch_size=batch_size,
-        shuffle=False,
-    )
-
-    ar_losses = []
-    for x_cat, g in ar_loader:
-        loss = eval_step_ar(ar_model, x_cat, g, device)
-        ar_losses.append(loss)
-
-    flow_losses = []
-    for x_cat, x_cont, g in flow_loader:
-        loss = eval_step_flow(flow_model, ctx_model, x_cont, x_cat, g, device)
-        flow_losses.append(loss)
-
-    reset_flow_debug_stats(flow_model)
-
-    with torch.no_grad():
-        ar_model.eval()
-        ctx_model.eval()
-        flow_model.eval()
-
-        x_cat_test_t = data_dict["X_cat_test"].to(device=device, dtype=torch.long)
-        g_test_t = data_dict["g_test"].to(device=device, dtype=torch.long)
-        x_cont_test_t = data_dict["X_cont_test"].to(device=device, dtype=torch.float32)
-
-        logp_cat_test = ar_model.log_prob(x_cat_test_t, g_test_t).detach().cpu().numpy()
-        context_test = ctx_model(x_cat_test_t, g_test_t)
-        logp_cont_test = flow_model.log_prob(x_cont_test_t, context_test).detach().cpu().numpy()
-        logp_x_given_g_test = logp_cat_test + logp_cont_test
-
-    print_flow_debug_summary(flow_model)
-
-    groups_np = data_dict["g_test"].detach().cpu().numpy()
-
-    gen_df = pd.DataFrame(
-        {
-            "group": groups_np,
-            "logp_cat_test": logp_cat_test,
-            "logp_cont_test": logp_cont_test,
-            "logp_x_given_g_test": logp_x_given_g_test,
-        }
-    )
-
-    gen_df["ar_test_nll"] = float(np.mean(ar_losses))
-    gen_df["flow_test_nll"] = float(np.mean(flow_losses))
-
-    summary = (
-        gen_df.groupby("group", dropna=False)
-        .agg(
-            count=("group", "size"),
-            mean_logp_cat=("logp_cat_test", "mean"),
-            mean_logp_cont=("logp_cont_test", "mean"),
-            mean_logp_total=("logp_x_given_g_test", "mean"),
-            std_logp_total=("logp_x_given_g_test", "std"),
-        )
-        .reset_index()
-    )
-
-    return gen_df, summary
-
-
 def test_predictive_ensemble(
     predictive_models: Sequence[Classifier],
     data_dict: Mapping[str, Any],
