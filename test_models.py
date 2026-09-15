@@ -16,14 +16,9 @@ from modules.utils.loading_utils import (
     test_generative_models,
     test_predictive_ensemble,
 )
-from modules.models.generative_models import (
-    reset_flow_debug_stats, 
-    print_flow_debug_summary
-)
 from modules.utils.testing_utils import (
     inspect_test_examples, 
-    compare_two_test_examples, 
-    rank_test_examples_by_density
+    compare_two_test_examples,
 )
 
 from modules.metrics.fairness_metrics import (
@@ -83,15 +78,6 @@ def main(args) -> None:
     batch_size = args.batch_size_eval
 
     optimizers = load_optimizers_if_available(exp_folder, ar_model, ctx_model, flow_model, predictive_models, cfg)
-
-    # gen_results, summary = test_generative_models(
-    #     ar_model=ar_model,
-    #     ctx_model=ctx_model,
-    #     flow_model=flow_model,
-    #     data_dict=data_dict,
-    #     device=device,
-    #     batch_size=batch_size,
-    # )
 
     pred_results = test_predictive_ensemble(
         predictive_models=predictive_models,

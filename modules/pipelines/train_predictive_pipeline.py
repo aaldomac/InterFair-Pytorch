@@ -236,40 +236,6 @@ def prepare_data(config: PipelineConfig) -> PreparedData:
         shuffle=False,
     )
 
-    # px_schema = None
-    # px_train_loader = None
-    # px_val_loader = None
-    # px_test_loader = None
-
-    # if config.build_px_loaders:
-    #     px_schema = fit_schema_px(train_df, spec)
-
-    #     X_cat_train, X_cont_train, g_px_train, _ = transform_px(train_df, px_schema)
-    #     X_cat_val, X_cont_val, g_px_val, _ = transform_px(val_df, px_schema)
-    #     X_cat_test, X_cont_test, g_px_test, _ = transform_px(test_df, px_schema)
-
-    #     px_train_loader = _make_px_loader(
-    #         X_cat_train,
-    #         X_cont_train,
-    #         g_px_train,
-    #         batch_size=config.loader.batch_size,
-    #         shuffle=config.loader.shuffle_train,
-    #     )
-    #     px_val_loader = _make_px_loader(
-    #         X_cat_val,
-    #         X_cont_val,
-    #         g_px_val,
-    #         batch_size=config.loader.eval_batch_size,
-    #         shuffle=False,
-    #     )
-    #     px_test_loader = _make_px_loader(
-    #         X_cat_test,
-    #         X_cont_test,
-    #         g_px_test,
-    #         batch_size=config.loader.eval_batch_size,
-    #         shuffle=False,
-    #     )
-
     return PreparedData(
         loaded=loaded,
         spec=spec,
@@ -283,10 +249,6 @@ def prepare_data(config: PipelineConfig) -> PreparedData:
         num_features=int(X_train.shape[1]),
         num_classes=num_classes,
         binary=binary,
-        # px_schema=px_schema,
-        # px_train_loader=px_train_loader,
-        # px_val_loader=px_val_loader,
-        # px_test_loader=px_test_loader,
     )
 
 
