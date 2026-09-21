@@ -1,0 +1,39 @@
+# 16 conditions x 5 seeds x 10 members = 800 fitted MLPs.
+# Start with --condition baseline --seed 0 before running the whole configuration.
+output: results/main
+model_seed_base: 1000  # starting value used to construct model seeds
+data_seeds: [0, 1, 2, 3, 4]  # independent generated datasets to evaluate
+data:
+  train: 2000  # training observations per group before thinning
+  validation: 500  # validation observations per group
+  audit: 5000  # held-out evaluation observations per group
+  reference: 25000  # observations per group reserved for later population-integration studies
+conditions:
+  # scenario: choose from {baseline, scarcity, noise, additive, interaction, cancellation}
+  # rho: fraction retained from training group 11; used by scarcity and cancellation
+  # eta: label-flip probability for the manipulated group; used by noise and cancellation (baseline has probability 0.05 in all groups)
+  # strength: entropy increment in bits; used by additive and interaction  
+  baseline: {scenario: baseline}
+  scarcity_050: {scenario: scarcity, rho: 0.5}
+  scarcity_025: {scenario: scarcity, rho: 0.25}
+  scarcity_0125: {scenario: scarcity, rho: 0.125}
+  noise_010: {scenario: noise, eta: 0.10}
+  noise_020: {scenario: noise, eta: 0.20}
+  noise_030: {scenario: noise, eta: 0.30}
+  additive_000: {scenario: additive, strength: 0.0}
+  additive_010: {scenario: additive, strength: 0.10}
+  additive_020: {scenario: additive, strength: 0.20}
+  additive_030: {scenario: additive, strength: 0.30}
+  interaction_000: {scenario: interaction, strength: 0.0}
+  interaction_010: {scenario: interaction, strength: 0.10}
+  interaction_020: {scenario: interaction, strength: 0.20}
+  interaction_030: {scenario: interaction, strength: 0.30}
+  cancellation: {scenario: cancellation, eta: 0.30, rho: 0.125}
+pipeline:
+  n_models: 10
+  append_protected_to_predictor: false  # excludes explicit S1 and S2 from model inputs
+  device: null
+  model: {hidden_dims: [128, 64], dropout: 0.0}  # dropout enables training dropout, but not MC-dropout evaluation
+  optimizer: {lr: 0.001, weight_decay: 0.0001}
+  loader: {batch_size: 128, eval_batch_size: 512, shuffle_train: true}
+  train: {epochs: 300, patience: 30, binary: true, restore_best: true, verbose: true}
