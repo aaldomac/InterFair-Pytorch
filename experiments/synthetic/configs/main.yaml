@@ -30,7 +30,7 @@ conditions:
   interaction_030: {scenario: interaction, strength: 0.30}
   cancellation: {scenario: cancellation, eta: 0.30, rho: 0.125}
 pipeline:
-  n_models: 10
+  n_models: 5
   append_protected_to_predictor: false  # excludes explicit S1 and S2 from model inputs
   device: null
   model: {hidden_dims: [128, 64], dropout: 0.0}  # dropout enables training dropout, but not MC-dropout evaluation
