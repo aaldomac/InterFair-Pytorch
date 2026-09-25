@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 import numpy as np
 from .data import GROUPS, LOG2, prepare_pipeline_data, save_prepared_dataset
-from .audit import audit_uncertainties
+from .audit import audit_uncertainties, audit_stripe_regions
 
 def run_experiment(config=None, *, out=None,
                              regularizer=None, regularizer_weight=1.0,
@@ -63,6 +63,11 @@ def run_experiment(config=None, *, out=None,
     groups = data.test_df['group_id'].to_numpy(dtype=np.int64)
     labels = data.test_df['y'].to_numpy(dtype=np.int64)
     audit = audit_uncertainties(ensemble, groups)
+    if 'stripe' in data.loaded.metadata:
+        audit['stripe_regions'] = audit_stripe_regions(
+            ensemble, groups,
+            data.test_df[data.loaded.metadata['feature_names']].to_numpy(),
+            data.test_df[['S1', 'S2']].to_numpy(), data.loaded.metadata)
     mean_p = member_p.mean(axis=0).astype(float)
     predicted = ((mean_p >= config.train.threshold).astype(int) if data.binary
                  else np.asarray(ensemble['predictions']))

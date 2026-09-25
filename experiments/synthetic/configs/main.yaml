@@ -29,6 +29,10 @@ conditions:
   interaction_020: {scenario: interaction, strength: 0.20}
   interaction_030: {scenario: interaction, strength: 0.30}
   cancellation: {scenario: cancellation, eta: 0.30, rho: 0.125}
+  stripe_r025: {scenario: stripe, rho: 0.25, stripe_slope: -0.5}
+  stripe_r050: {scenario: stripe, rho: 0.50, stripe_slope: -0.5}
+  stripe_r075: {scenario: stripe, rho: 0.75, stripe_slope: -0.5}
+  
 pipeline:
   n_models: 5
   append_protected_to_predictor: false  # excludes explicit S1 and S2 from model inputs

@@ -109,6 +109,7 @@ def load_results(folder, conditions=None):
             raise ValueError(f'Cannot report completed run {path}: {exc}') from exc
     if conditions and set(conditions)-found:
         raise ValueError(f'Conditions not found: {sorted(set(conditions)-found)}')
+    print(f"Runs in report: {runs}")
     if not runs:
         raise ValueError('No completed runs found under folder/runs/<condition>/seed_*')
     return pd.DataFrame(runs), pd.DataFrame(groups), pd.DataFrame(pairs), skipped
@@ -204,6 +205,35 @@ LaTeX tables require \\usepackage{booktabs}; CSV files preserve unrounded numeri
     texts.append(notes)
     return '\n\n'.join(texts)+'\n',exports
 
+def stripe_region_report(folder, conditions=None, digits=4):
+    """Additional outputs; keep load_results/build_report public APIs unchanged."""
+    rows = []
+    for path in sorted((folder/'runs').glob('*/seed_*')):
+        if not (path/'COMPLETE').exists():
+            continue
+        condition = path.parent.name
+        if conditions and condition not in conditions:
+            continue
+        audit = read_json(path/'synthetic_audit'/'uncertainty_audit.json')
+        for region in audit.get('stripe_regions', []):
+            rows.append(dict(condition=condition, seed=audit['audit_seed'], **region))
+    if not rows:
+        return '', {}
+    frame = pd.DataFrame(rows)
+    exports = {'stripe_regionscsv': frame.to_csv(index=False)}
+    # Exclude empty regions explicitly: runs counts nonempty run-level estimates.
+    valid = frame[frame.support > 0]
+    keys = ['condition', 'group', 'region']
+    metrics = ['alea', 'epis', 'tot', 'oracle_alea', 'alea_error']
+    stats = aggregate(valid, keys, metrics)
+    display = mean_std_table(stats, keys, metrics, digits)
+    exports['stripe_regions_stats.csv'] = stats.to_csv(index=False)
+    exports['stripe_regions.tex'] = latex_table(display)
+    text = ('STRIPE REGIONS — mean +/- sample SD across nonempty runs\n'
+            + display.to_string(index=False)
+            + '\nRegion boundaries vary with the condition width. Empty regions are '
+              'omitted from this table; supports for every run are in stripe_regions.csv.\n')
+    return text, exports 
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__,formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -219,6 +249,9 @@ def main():
     try:
         runs,groups,pairs,skipped=load_results(args.folder,args.condition)
         report,exports=build_report(runs,groups,pairs,args.digits,args.pairs)
+        regional_text, regional_exports = stripe_region_report(args.folder, args.condition, args.digits)
+        report += '\n' + regional_text
+        exports.update(regional_exports)
         preamble=f'SYNTHETIC EXPERIMENT REPORT\nSource: {args.folder.resolve()}\n'
         if skipped:
             preamble+='Skipped incomplete runs:\n'+'\n'.join(skipped)+'\n'

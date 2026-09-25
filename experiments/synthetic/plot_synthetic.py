@@ -55,6 +55,10 @@ def read_saved_data(run, split):
 def condition_title(meta):
     """Include the actual intervention strength, not just the scenario name."""
     scenario = meta["scenario"]
+    if scenario == 'stripe':
+        info = meta['stripe']
+        return (f"stripe | w={info['half_width']:.4g} | slope={info['slope']:g}"
+                f" | rho={info['expected_retention']:.4g} | group={info['group']}")
     keys = {"scarcity": ["rho"], "noise": ["eta"], "additive": ["strength"],
             "interaction": ["strength"], "cancellation": ["eta", "rho"]}.get(scenario, [])
     return scenario + "".join(f" | {key}={meta[key]:g}" for key in keys)
@@ -89,6 +93,22 @@ def decorate(ax, counts=None):
     ax.set_aspect('equal')
     for spine in ax.spines.values():
         spine.set_visible(False)
+
+
+def draw_stripe(ax, meta):
+    """Magenta dotted edges mark withheld training support, even on audit maps."""
+    if 'stripe' not in meta:
+        return
+    info = meta['stripe']
+    if info['half_width'] == 0:
+        return
+    g = int(info['group'], 2)
+    cx, cy = 3*(2*np.array([g//2, g%2])-1)
+    z2 = np.linspace(-1., 1., 1000)
+    for sign in (-1, 1):
+        z1 = info['slope']*z2 + sign*info['half_width']
+        z1 = np.where(np.abs(z1) <= 1., z1, np.nan)
+        ax.plot(cx+z1, cy+z2, ':', color='#E600A9', lw=1.6)
 
 
 def heatmap(ax, xy, values, *, vmax, cmap):
@@ -132,7 +152,10 @@ def plot_data(data, meta, xy, oracle, args, output):
     m = heatmap(axes[1], xy, oracle, vmax=1, cmap='viridis')
     axes[1].set_title('Oracle class-1 probability')
     fig.colorbar(m, ax=axes[1], fraction=.046, pad=.03, label=r'$P(Y=1\mid X)$')
-    fig.suptitle(f"{condition_title(meta)} | data seed {meta['seed']} | dashed: true clean boundary")
+    for ax in axes:
+        draw_stripe(ax, meta)
+    stripe_note = ' | magenta dotted: stripe edges' if 'stripe' in meta else ''
+    fig.suptitle(f"{condition_title(meta)} | data seed {meta['seed']} | dashed: true clean boundary{stripe_note}")
     save_figure(fig, output, f'data_{args.split}', args.dpi)
     return fig
 
@@ -226,6 +249,7 @@ def plot_ensemble(xy, oracle, maps, meta, args, output, n_models):
     for i, (ax, (title, values, vmax, cmap)) in enumerate(zip(axes, panels)):
         m = heatmap(ax, xy, values, vmax=vmax, cmap=cmap)
         ax.set_title(title)
+        draw_stripe(ax, meta)
         if i:
             ax.set_ylabel('')
         label = 'Class-1 probability' if i < 2 else 'Entropy (nats)'
@@ -237,7 +261,8 @@ def plot_ensemble(xy, oracle, maps, meta, args, output, n_models):
             axes[1].contour(xy[g, :, :, 0], xy[g, :, :, 1], p, levels=[.5], colors='cyan', linewidths=1.2)
     fig.suptitle(f"{condition_title(meta)} | seed {meta['seed']} | {n_models} members | "
                  f"averaged over {args.nuisance_draws} nuisance draws\n"
-                 'Dashed black: true clean boundary; cyan: ensemble probability = 0.5')
+                 'Dashed black: true clean boundary; cyan: ensemble probability = 0.5'
+                 + ('; magenta dotted: stripe edges' if 'stripe' in meta else ''))
     save_figure(fig, output, 'ensemble_maps', args.dpi)
     np.savez_compressed(output / 'ensemble_maps.npz', xy=xy, oracle=oracle, **maps)
     print(f"Epistemic range: {maps['epis'].min():.6f} to {maps['epis'].max():.6f} nats; color maximum {epis_max:g}")
@@ -255,7 +280,7 @@ def main():
     parser.add_argument('--batch-size', type=int, default=4096, help='Maximum inference batch size (default 4096).')
     parser.add_argument('--max-points', type=int, default=6000, help='Maximum scatter points, sampled uniformly across the whole split.')
     parser.add_argument('--plot-seed', type=int, default=123, help='Seed for scatter subsampling and nuisance draws; not the saved data seed.')
-    # parser.add_argument('--epis-max', type=float, default=float(np.log(2)), help='Epistemic color maximum in nats; default log(2). Use the SAME value when comparing conditions; clipped values are marked on colorbar.')
+    parser.add_argument('--epis-max', type=float, default=None, help='Epistemic color maximum in nats; default log(2). Use the SAME value when comparing conditions; clipped values are marked on colorbar.')
     parser.add_argument('--device', default='cpu', help='Inference device, e.g. cpu or cuda; used only with --ensemble.')
     parser.add_argument('--dpi', type=int, default=220, help='PNG and rasterized PDF layer resolution.')
     parser.add_argument('--show', action='store_true', help='Also open interactive windows; default is save-only for servers.')

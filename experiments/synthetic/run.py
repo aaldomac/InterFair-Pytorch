@@ -41,7 +41,8 @@ def read_config(path):
     for name, condition in cfg['conditions'].items():
         if not re.fullmatch(r'[A-Za-z0-9_-]+', str(name)):
             raise ValueError(f'Invalid condition name: {name}')
-        if set(condition) - {'scenario', 'rho', 'eta', 'strength'}:
+        if set(condition) - {'scenario', 'rho', 'eta', 'strength', 'stripe_half_width',
+                             'stripe_slope', 'stripe_group', 'stripe_validation'}:
             raise ValueError(f'Unknown condition parameters: {name}')
         # Validate the actual DGP arguments cheaply, before training anything.
         generate(seed=cfg['data_seeds'][0], **cfg['data'], **condition)

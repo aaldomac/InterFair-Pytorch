@@ -31,6 +31,51 @@ def inverse_h_bits(target):
         hi = np.where(low, hi, mid)
     return (lo+hi)/2
 
+def stripe_retention(half_width, slope = -0.5):
+    """Population P(|Z1-slope*Z2| >= half_widt), Z1,Z2 iid U[-1,1].
+    Width is along Z1, not perpendicular to the stripe. SIgn of slope does not change its area. 
+    This is an analytic population fraction, not a count.
+    """
+    if not np.isfinite(slope) or not np.isfinite(half_width) or half_width < 0:
+        raise ValueError('Slope must be finite and half-width finite/nonnegative.')
+    a, b = max(1., abs(slope)), min(1., abs(slope))
+    if half_width >= a + b:
+        return 0.
+    if half_width <= a - b:
+        return float(1. - half_width/a)
+    return float(((a + b - half_width)/a)*((a + b - half_width)/b)/4.)
+
+def stripe_width_from_rho(rho, slope = -0.5):
+    """Invert stripe_retention; rho is the fraction RETAINED, in (0, 1]."""
+    if not np.isfinite(rho) or not 0 < rho <= 1 or not np.isfinite(slope):
+        raise ValueError('rho must be in (0,1] and slope finite.')
+    a, b = max(1., abs(slope)), min(1., abs(slope))
+    if rho > b/a:
+        return float(a*(1.-rho))
+    return float(a + b - 2.*np.sqrt(a)*np.sqrt(b)*np.sqrt(rho))
+
+def stripe_region_mask(X, S, half_width, slope = -0.5):
+    """Stripe membership in raw (unstandardized) predictors, for every group."""
+    stripe_retention(half_width, slope)  # validate geometry
+    X, S = np.asarray(X), np.asarray(S)
+    if X.ndim != 2 or X.shape[1] < 2 or S.shape != (len(X), 2):
+        raise ValueError('X must be 2D with at least two columns; S must be 2D with shape (n,2).')
+    if not np.isfinite(X[:, :2]).all() or not np.isin(S, [0, 1]).all():
+        raise ValueError('Expected finite coordinates and binary S.')
+    z = X[:, :2].astype(float) - 3*(2*S.astype(float)-1)
+    return np.abs(z[:, 0] - slope*z[:, 1]) < half_width
+
+def apply_stripe(split, half_width, slope = -0.5, target_group='11'):
+    """Filter all row-aligned arrays identically, retaining original row IDs."""
+    if target_group not in GROUPS:
+        raise ValueError('stripe_group must be a quoted group ID: 00, 01, 10 or 11.')
+    inside = stripe_region_mask(split['X'], split['S'], half_width, slope)
+    keep = ~((split['group'] == GROUPS.index(target_group)) & inside)
+    if not np.any(keep & (split['group'] == GROUPS.index(target_group))):
+        raise ValueError('Stripe removed every target-group observation. Use a smaller width, larger rho, or larger split size.')
+    return {key: value[keep] for key, value in split.items()}
+
+
 def parameters(scenario='baseline', rho=1., eta=.2, strength=.15):
     """Converts a condition into four group noise rates and four training-retention fractions."""
     if not np.isfinite(rho) or not 0 < rho <= 1:
@@ -50,7 +95,7 @@ def parameters(scenario='baseline', rho=1., eta=.2, strength=.15):
         noise = inverse_h_bits(.30 + strength*pattern)
     elif scenario == 'cancellation':
         noise[0], retain[3] = eta, rho
-    elif scenario != 'baseline':
+    elif scenario not in ('baseline', 'stripe'):
         raise ValueError('Unknown scenario.')
     return noise, retain
 
@@ -86,13 +131,40 @@ def sample_split(n_per_group, seed, stream, noise, retain=None):
     return {k: v[index] for k, v in result.items()}
 
 def generate(seed=0, scenario='baseline', rho=1., eta=.2, strength=.15,
-             train=2000, validation=500, audit=5000, reference=25000):
+             train=2000, validation=500, audit=5000, reference=25000,
+             stripe_half_width=None, stripe_slope=-.5, stripe_group='11', stripe_validation=True):
     """Calls 'parameters()' and generates train, validation, audit and reference partitions. Returns partitions plus metadata."""
+    stripe = None
+    if scenario == 'stripe':
+        if rho == 1. and (stripe_half_width is None):
+            raise ValueError('Stripe requires exactly one of rho or stripe_half_width.')
+        if stripe_group not in GROUPS or type(stripe_validation) is not bool:
+            raise ValueError('stripe_group must be a quoted group ID and stripe_validation a bool.')
+        if eta != .2 or strength != .15:
+            raise ValueError('Stripe uses baseline noise .05; eta/strength do not apply.')
+        width = stripe_width_from_rho(rho, stripe_slope) if stripe_half_width is None else float(stripe_half_width)
+        expected = stripe_retention(width, stripe_slope)
+        if expected <= 0:
+            raise ValueError('Stripe width is too large; no target-group observations remain.')
+        stripe = dict(half_width=width, slope=float(stripe_slope), group=stripe_group, 
+                      requested_rho=1. if rho == 1. else float(rho), expected_retention=expected,
+                      input_mode='rho' if stripe_half_width is None else 'half_width', 
+                      restrict_validation=stripe_validation, width_convention='half_width along Z1',
+                      count_policy='filter; expected retention, not exact finite counts.')
+        rho = expected
+    elif stripe_half_width is not None or stripe_slope != -.5 or stripe_group != '11' or stripe_validation is not True:
+        raise ValueError('Stripe options require scenario=stripe.')
+    rho = 1. if rho == 1. else rho       
     noise, retain = parameters(scenario, rho, eta, strength)
     sizes = dict(train=train, validation=validation, audit=audit, reference=reference)
     splits = {name: sample_split(n, seed, stream, noise,
               retain if name == 'train' else None)
               for stream, (name, n) in enumerate(sizes.items())}
+    if stripe is not None:
+        for name in ('train', 'validation') if stripe_validation else ('train',):
+            splits[name] = apply_stripe(splits[name], width, stripe_slope, stripe_group)
+            #This records expected training retention; no random thinning is applied.
+        retain[GROUPS.index(stripe_group)] = stripe['expected_retention']
     meta = dict(seed=seed, scenario=scenario, rho=rho, eta=eta, strength=strength,
                 group_order=GROUPS, requested_per_group=sizes,
                 flip_probability=noise.tolist(), retention=retain.tolist(),
@@ -102,6 +174,11 @@ def generate(seed=0, scenario='baseline', rho=1., eta=.2, strength=.15,
                 entropy_units='nats', numpy_version=np.__version__,
                 counts={name: np.bincount(d['group'], minlength=4).tolist()
                         for name,d in splits.items()})
+    if stripe is not None:
+        stripe['realized_retention'] = {
+            name: meta['counts'][name][GROUPS.index(stripe_group)] / sizes[name]
+            for name in sizes}
+        meta['stripe'] = stripe
     return splits, meta
 
 def get_spec():
