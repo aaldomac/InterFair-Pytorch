@@ -42,7 +42,7 @@ def read_config(path):
         if not re.fullmatch(r'[A-Za-z0-9_-]+', str(name)):
             raise ValueError(f'Invalid condition name: {name}')
         if set(condition) - {'scenario', 'rho', 'eta', 'strength', 'stripe_half_width',
-                             'stripe_slope', 'stripe_group', 'stripe_validation'}:
+                             'stripe_slope', 'stripe_group', 'stripe_validation', 'loan_overrides'}:
             raise ValueError(f'Unknown condition parameters: {name}')
         # Validate the actual DGP arguments cheaply, before training anything.
         generate(seed=cfg['data_seeds'][0], **cfg['data'], **condition)
@@ -59,7 +59,7 @@ def pipeline_config(cfg, kwargs, seed):
                      ('optimizer', OptimizerConfig), ('train', TrainConfig)]:
         if key in options:
             options[key] = cls(**options[key])
-    options.setdefault('n_models', 10)
+    options.setdefault('n_models', 5)
     options.setdefault('append_protected_to_predictor', False)
     return PipelineConfig(dataset_name='synthetic_uncertainty',
                           dataset_kwargs=kwargs,
@@ -90,7 +90,7 @@ def main():
         for seed in seeds:
             kwargs = dict(cfg['data'], **condition, seed=seed)
             # Pair model seed schedules across conditions; disjoint across data seeds.
-            model_seed = cfg['model_seed_base'] + seed*cfg['pipeline'].get('n_models', 10)
+            model_seed = cfg['model_seed_base'] + seed*cfg['pipeline'].get('n_models', 5)
             dest = output/('generated' if args.generate_only else 'runs')/name/f'seed_{seed}'
             jobs.append((name, seed, model_seed, kwargs, dest))
     for name, seed, model_seed, _, dest in jobs:

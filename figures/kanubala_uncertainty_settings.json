@@ -1,0 +1,50 @@
+{
+  "input": "experiments/synthetic/results/kanubala",
+  "metrics": [
+    "F_tot",
+    "I_alea",
+    "I_tot"
+  ],
+  "conditions": [
+    "loan_no_bias",
+    "loan_single",
+    "loan_additive",
+    "loan_intersectional",
+    "loan_compounded"
+  ],
+  "condition_col": "condition",
+  "seed_col": "seed",
+  "input_format": "runs",
+  "where": [],
+  "scale": "none",
+  "errorbars": "sd",
+  "title": null,
+  "annotate": false,
+  "out": "figures/kanubala_uncertainty",
+  "formats": [
+    "png",
+    "pdf"
+  ],
+  "figsize": null,
+  "cmap": "tab10",
+  "dpi": 250,
+  "show": false,
+  "scales": {
+    "F_tot": {
+      "offset": 0.0,
+      "factor": 1.0,
+      "constant_minmax": false
+    },
+    "I_alea": {
+      "offset": 0.0,
+      "factor": 1.0,
+      "constant_minmax": false
+    },
+    "I_tot": {
+      "offset": 0.0,
+      "factor": 1.0,
+      "constant_minmax": false
+    }
+  },
+  "F_hidden_alias": "hidden_normalized"
+}

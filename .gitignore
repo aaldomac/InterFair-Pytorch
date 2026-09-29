@@ -54,6 +54,8 @@ checkpoints/
 *.tsv
 *.parquet
 *.hdf5
+*.png
+*.pdf
 
 # OS files
 .DS_Store

@@ -1,0 +1,222 @@
+{
+  "no_bias": {
+    "sample_size": 10000,
+    "prob_gender": 0.5,
+    "prob_race": 0.5,
+    "beta": 0.03,
+    "beta_I": 0.8,
+    "beta_S": 0.6,
+    "gamma": 0.1,
+    "eta": 2.0,
+    "delta": 0.45,
+    "measure_bias_col": "Gender",
+    "thetas": {
+      "G": 0.0,
+      "R": 0.0,
+      "GR": 0.0
+    },
+    "beta_coef": {
+      "G": 0.0,
+      "R": 0.0,
+      "GR": 0.0
+    },
+    "rhos": {
+      "G": 0.0,
+      "R": 0.0,
+      "GR": 0.0
+    },
+    "kappas": {
+      "G": 0.0,
+      "R": 0.0,
+      "GR": 0.0
+    },
+    "nus": {
+      "G": 0.0,
+      "R": 0.0,
+      "GR": 0.0
+    },
+    "lambdas": {
+      "E": 1.0,
+      "I": 1.0,
+      "L": 1.0,
+      "D": -1.0,
+      "Y": 1.0
+    }
+  },
+  "single": {
+    "sample_size": 10000,
+    "prob_gender": 0.5,
+    "prob_race": 0.5,
+    "beta": 0.03,
+    "beta_I": 0.8,
+    "beta_S": 0.6,
+    "gamma": 0.1,
+    "eta": 2.0,
+    "delta": 0.45,
+    "measure_bias_col": "Gender",
+    "thetas": {
+      "G": 0.25,
+      "R": 0.0,
+      "GR": 0.0
+    },
+    "beta_coef": {
+      "G": 4.0,
+      "R": 0.0,
+      "GR": 0.0
+    },
+    "rhos": {
+      "G": 9.5,
+      "R": 0.0,
+      "GR": 0.0
+    },
+    "kappas": {
+      "G": 8.5,
+      "R": 0.0,
+      "GR": 0.0
+    },
+    "nus": {
+      "G": 2.0,
+      "R": 0.0,
+      "GR": 0.0
+    },
+    "lambdas": {
+      "E": 1.0,
+      "I": 1.0,
+      "L": 1.0,
+      "D": -1.0,
+      "Y": 1.0
+    }
+  },
+  "additive": {
+    "sample_size": 10000,
+    "prob_gender": 0.5,
+    "prob_race": 0.5,
+    "beta": 0.03,
+    "beta_I": 0.8,
+    "beta_S": 0.6,
+    "gamma": 0.1,
+    "eta": 2.0,
+    "delta": 0.45,
+    "measure_bias_col": "Gender",
+    "thetas": {
+      "G": 0.2,
+      "R": 0.25,
+      "GR": 0.0
+    },
+    "beta_coef": {
+      "G": 4.0,
+      "R": 3.7,
+      "GR": 0.0
+    },
+    "rhos": {
+      "G": 9.4,
+      "R": 9.0,
+      "GR": 0.0
+    },
+    "kappas": {
+      "G": 8.0,
+      "R": 8.3,
+      "GR": 0.0
+    },
+    "nus": {
+      "G": 0.85,
+      "R": 0.9,
+      "GR": 0.0
+    },
+    "lambdas": {
+      "E": 1.0,
+      "I": 1.0,
+      "L": 1.0,
+      "D": -1.0,
+      "Y": 1.0
+    }
+  },
+  "intersectional": {
+    "sample_size": 10000,
+    "prob_gender": 0.5,
+    "prob_race": 0.5,
+    "beta": 0.03,
+    "beta_I": 0.8,
+    "beta_S": 0.6,
+    "gamma": 0.1,
+    "eta": 2.0,
+    "delta": 0.45,
+    "measure_bias_col": "Gender",
+    "thetas": {
+      "G": 0.0,
+      "R": 0.0,
+      "GR": 0.25
+    },
+    "beta_coef": {
+      "G": 0.0,
+      "R": 0.0,
+      "GR": 4.0
+    },
+    "rhos": {
+      "G": 0.0,
+      "R": 0.0,
+      "GR": 9.5
+    },
+    "kappas": {
+      "G": 0.0,
+      "R": 0.0,
+      "GR": 8.9
+    },
+    "nus": {
+      "G": 0.0,
+      "R": 0.0,
+      "GR": 2.0
+    },
+    "lambdas": {
+      "E": 1.0,
+      "I": 1.0,
+      "L": 1.0,
+      "D": -1.0,
+      "Y": 1.0
+    }
+  },
+  "compounded": {
+    "sample_size": 10000,
+    "prob_gender": 0.5,
+    "prob_race": 0.5,
+    "beta": 0.03,
+    "beta_I": 0.8,
+    "beta_S": 0.6,
+    "gamma": 0.1,
+    "eta": 2.0,
+    "delta": 0.45,
+    "measure_bias_col": "Gender",
+    "thetas": {
+      "G": 0.2,
+      "R": 0.23,
+      "GR": 0.25
+    },
+    "beta_coef": {
+      "G": 3.9,
+      "R": 3.5,
+      "GR": 4.0
+    },
+    "rhos": {
+      "G": 9.2,
+      "R": 9.5,
+      "GR": 10.0
+    },
+    "kappas": {
+      "G": 6.9,
+      "R": 8.2,
+      "GR": 8.8
+    },
+    "nus": {
+      "G": 1.0,
+      "R": 0.9,
+      "GR": 1.18
+    },
+    "lambdas": {
+      "E": 1.0,
+      "I": 1.0,
+      "L": 1.0,
+      "D": -1.0,
+      "Y": 1.0
+    }
+  }
+}

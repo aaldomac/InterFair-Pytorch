@@ -132,8 +132,16 @@ def sample_split(n_per_group, seed, stream, noise, retain=None):
 
 def generate(seed=0, scenario='baseline', rho=1., eta=.2, strength=.15,
              train=2000, validation=500, audit=5000, reference=25000,
-             stripe_half_width=None, stripe_slope=-.5, stripe_group='11', stripe_validation=True):
+             stripe_half_width=None, stripe_slope=-.5, stripe_group='11', stripe_validation=True, loan_overrides=None):
     """Calls 'parameters()' and generates train, validation, audit and reference partitions. Returns partitions plus metadata."""
+    if scenario.startswith('loan_'):
+        if (rho != 1. or eta != .2 or strength != .15 or stripe_half_width is not None or stripe_slope != -.5 or stripe_group != '11' or stripe_validation is not True):
+            raise ValueError('Old noise/scarcity/stripe options do not apply to loan scenarios.')
+        from .loan_data import generate_loan_splits
+        return generate_loan_splits(seed=seed, scenario=scenario, train=train, validation=validation, audit=audit, reference=reference, loan_overrides=loan_overrides)
+    if loan_overrides is not None:
+        raise ValueError('loan_overrides requires a loan_* scenario')
+    # None distinguishes omitted rho from an explicitly supplied retention
     stripe = None
     if scenario == 'stripe':
         if rho == 1. and (stripe_half_width is None):
@@ -229,7 +237,7 @@ def load_dataset(*, folder=None, **generation_kwargs):
     # Training proportions differ from the fixed equal-group audit target.
     pg_table, pg = compute_pg_dirichlet(df.iloc[indices['train']])
     meta = dict(meta, spec=get_spec(), split_indices=indices, pg_source='train',
-                population_pg={g: .25 for g in GROUPS},
+                population_pg=meta.get('population_pg', {g: .25 for g in GROUPS}),
                 row_id_scope='within split; identify rows by (split, row_id)')
     return LoadedDataset(df=df, original_columns=list(df.columns),
                          group_id={g: i for i, g in enumerate(GROUPS)},
@@ -253,7 +261,7 @@ def save_prepared_dataset(prepared, folder):
     meta = {k: v for k, v in loaded.metadata.items() if k not in ('split_indices', 'spec')}
     for name, df in prepared['frames'].items():
         np.savez_compressed(folder / f'{name}.npz',
-            X=df[meta['feature_names']].to_numpy(dtype=np.float32),
+            X=df[meta['feature_names']].to_numpy(dtype=np.float64 if meta.get('generator')=='kanubala_2025_repository' else np.float32),
             y=df.y.to_numpy(), S=df[['S1', 'S2']].to_numpy(dtype=np.int8),
             group=df.group_id.to_numpy(),
             **{k: df[k].to_numpy() for k in ('row_id', 'y_clean', 'p_true', 'U_true')})
