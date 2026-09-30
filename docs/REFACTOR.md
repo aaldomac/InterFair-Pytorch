@@ -1,3 +1,5 @@
+> Updated by the single-generator migration: see [UNIFIED_SYNTHETIC.md](UNIFIED_SYNTHETIC.md). The original refactor decisions below are retained as history.
+
 # Refactoring decisions and migration
 
 The source branch already delegated synthetic training to shared functions, but its

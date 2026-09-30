@@ -1,4 +1,5 @@
-output: experiments/main
+# All sizes are TOTAL rows before intervention. Base generator: Kanubala.
+output: experiments/loan_uncertainty_main
 model_seed_base: 1000
 data_seeds:
 - 0
@@ -8,65 +9,103 @@ data_seeds:
 - 4
 conditions:
   baseline:
-    scenario: baseline
+    uncertainty:
+      kind: baseline
+      baseline_noise: 0.05
   scarcity_050:
-    scenario: scarcity
-    rho: 0.5
+    uncertainty:
+      kind: scarcity
+      rho: 0.5
+      baseline_noise: 0.05
   scarcity_025:
-    scenario: scarcity
-    rho: 0.25
+    uncertainty:
+      kind: scarcity
+      rho: 0.25
+      baseline_noise: 0.05
   scarcity_0125:
-    scenario: scarcity
-    rho: 0.125
+    uncertainty:
+      kind: scarcity
+      rho: 0.125
+      baseline_noise: 0.05
   noise_010:
-    scenario: noise
-    eta: 0.1
+    uncertainty:
+      kind: noise
+      eta: 0.1
+      baseline_noise: 0.05
   noise_020:
-    scenario: noise
-    eta: 0.2
+    uncertainty:
+      kind: noise
+      eta: 0.2
+      baseline_noise: 0.05
   noise_030:
-    scenario: noise
-    eta: 0.3
+    uncertainty:
+      kind: noise
+      eta: 0.3
+      baseline_noise: 0.05
   additive_000:
-    scenario: additive
-    strength: 0.0
+    uncertainty:
+      kind: additive
+      strength: 0.0
+      entropy_base: 0.3
   additive_010:
-    scenario: additive
-    strength: 0.1
+    uncertainty:
+      kind: additive
+      strength: 0.1
+      entropy_base: 0.3
   additive_020:
-    scenario: additive
-    strength: 0.2
+    uncertainty:
+      kind: additive
+      strength: 0.2
+      entropy_base: 0.3
   additive_030:
-    scenario: additive
-    strength: 0.3
+    uncertainty:
+      kind: additive
+      strength: 0.3
+      entropy_base: 0.3
   interaction_000:
-    scenario: interaction
-    strength: 0.0
+    uncertainty:
+      kind: interaction
+      strength: 0.0
+      entropy_base: 0.3
   interaction_010:
-    scenario: interaction
-    strength: 0.1
+    uncertainty:
+      kind: interaction
+      strength: 0.1
+      entropy_base: 0.3
   interaction_020:
-    scenario: interaction
-    strength: 0.2
+    uncertainty:
+      kind: interaction
+      strength: 0.2
+      entropy_base: 0.3
   interaction_030:
-    scenario: interaction
-    strength: 0.3
+    uncertainty:
+      kind: interaction
+      strength: 0.3
+      entropy_base: 0.3
   cancellation:
-    scenario: cancellation
-    eta: 0.3
-    rho: 0.125
+    uncertainty:
+      kind: cancellation
+      eta: 0.3
+      rho: 0.125
+      baseline_noise: 0.05
   stripe_r025:
-    scenario: stripe
-    rho: 0.25
-    stripe_slope: -0.5
+    uncertainty:
+      kind: stripe
+      rho: 0.25
+      slope: -0.5
+      baseline_noise: 0.05
   stripe_r050:
-    scenario: stripe
-    rho: 0.5
-    stripe_slope: -0.5
+    uncertainty:
+      kind: stripe
+      rho: 0.5
+      slope: -0.5
+      baseline_noise: 0.05
   stripe_r075:
-    scenario: stripe
-    rho: 0.75
-    stripe_slope: -0.5
+    uncertainty:
+      kind: stripe
+      rho: 0.75
+      slope: -0.5
+      baseline_noise: 0.05
 pipeline:
   n_models: 5
   append_protected_to_predictor: false
@@ -92,10 +131,11 @@ pipeline:
 dataset:
   name: synthetic_uncertainty
   kwargs:
-    train: 2000
-    validation: 500
-    audit: 5000
-    reference: 25000
+    train: 8000
+    validation: 2000
+    audit: 20000
+    reference: 100000
+    scenario: loan_no_bias
 audit:
   enabled: true
   alpha: 0.05

@@ -37,10 +37,10 @@ class SharedTests(unittest.TestCase):
         np.testing.assert_allclose(a['hoeffding_component_radii'],l*np.sqrt(np.log(16/.05)/2))
 
     def test_fixed_splits_exclude_oracles_and_reference(self):
-        c=PipelineConfig(dataset_name='synthetic_uncertainty',dataset_kwargs=dict(train=20,validation=10,audit=12,reference=14),append_protected_to_predictor=False)
+        c=PipelineConfig(dataset_name='synthetic_uncertainty',dataset_kwargs=dict(train=80,validation=40,audit=48,reference=56),append_protected_to_predictor=False)
         d=prepare_data(c)
         self.assertEqual((len(d.train_df),len(d.val_df),len(d.test_df)),(80,40,48))
-        self.assertEqual(d.num_features,6)
+        self.assertEqual(d.num_features,7)
         self.assertTrue(set(d.train_df.index).isdisjoint(d.test_df.index))
         c2=PipelineConfig(dataset_name=c.dataset_name,dataset_kwargs=c.dataset_kwargs,model_seed=99,append_protected_to_predictor=False)
         np.testing.assert_array_equal(prepare_data(c2).train_df.index,d.train_df.index)
@@ -49,7 +49,7 @@ class SharedTests(unittest.TestCase):
         for scenario in ['loan_no_bias','loan_intersectional','stripe']:
             kwargs={'rho':.5} if scenario=='stripe' else {}
             splits,meta=generate(scenario=scenario,train=120,validation=80,audit=100,reference=100,**kwargs)
-            self.assertEqual(len(splits['audit']['y']),400 if scenario=='stripe' else 100)
+            self.assertEqual(len(splits['audit']['y']),100)
             self.assertEqual(meta['group_order'],['00','01','10','11'])
 
     def test_real_csv_multiclass_train_save_reload(self):

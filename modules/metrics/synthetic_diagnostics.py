@@ -7,12 +7,12 @@ def audit_stripe_regions(ensemble, groups, X, S, metadata):
     Each condition's region follows its own width; compare group-wide metrics
     on the fixed audit population when comparing different stripe widths.
     """
-    from modules.data.synthetic_uncertainty import stripe_region_mask
+    from modules.data.uncertainty_conditions import stripe_region_mask
     if 'stripe' not in metadata:
         return []
     info = metadata['stripe']
     g = GROUPS.index(info['group'])
-    inside = stripe_region_mask(X, S, info['half_width'], info['slope'])
+    inside = stripe_region_mask(X, info)
     groups = np.asarray(groups)
     oracle = metadata['oracle_entropy_bits'][g]*LOG2
     rows = []

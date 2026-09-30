@@ -1,193 +1,48 @@
-"""Synthetic DGP and fixed-split adapter to your PreparedData contract.
+"""Shared adapter: one Kanubala generator, optional uncertainty interventions.
 
-X contains strong protected-attribute proxies. Oracle columns never enter X.
-Validation/audit/reference remain fixed across paired scarcity conditions.
+All split sizes are TOTAL rows before intervention, never per-group counts.
+The module name is retained so existing pipeline imports need not change.
 """
 import json
+import warnings
 from pathlib import Path
 import numpy as np
-GROUPS = ['00', '01', '10', '11']
-LOG2 = float(np.log(2.0))
+from modules.data.loan_data import GROUPS, generate_loan_splits
+from modules.data.uncertainty_conditions import (
+    LOG2, h, inverse_h_bits, parameters, apply_uncertainty,
+)
 
-def h(p):
-    """Binary entropy, including exact endpoints."""
-    p = np.asarray(p, dtype=float)
-    if np.any(~np.isfinite(p)) or np.any((p < 0) | (p > 1)):
-        raise ValueError('Probabilities must be finite and in [0,1].')
-    q = np.clip(p, np.finfo(float).tiny, 1)
-    r = np.clip(1-p, np.finfo(float).tiny, 1)
-    return -p*np.log(q)-(1-p)*np.log(r)
 
-def inverse_h_bits(target):
-    """ Find a label-flip probability whose binary entropy equals 'target' bits."""
-    target = np.asarray(target, dtype=float)
-    if np.any(~np.isfinite(target)) or np.any((target < 0) | (target > 1)):
-        raise ValueError('Entropy targets must lie in [0,1] bits.')
-    lo, hi = np.zeros_like(target), np.full_like(target, .5)
-    for _ in range(60):
-        mid = (lo+hi)/2
-        low = h(mid)/LOG2 < target
-        lo = np.where(low, mid, lo)
-        hi = np.where(low, hi, mid)
-    return (lo+hi)/2
+def generate(seed=0, scenario='loan_no_bias', train=6000, validation=1500,
+             audit=2500, reference=10000, loan_overrides=None, uncertainty=None,
+             **legacy):
+    """Generate a loan scenario, then optionally transform its row-aligned splits.
 
-def stripe_retention(half_width, slope = -0.5):
-    """Population P(|Z1-slope*Z2| >= half_widt), Z1,Z2 iid U[-1,1].
-    Width is along Z1, not perpendicular to the stripe. SIgn of slope does not change its area.
-    This is an analytic population fraction, not a count.
+    Canonical example: scenario='loan_no_bias',
+    uncertainty={'kind':'scarcity', 'rho':.25, 'baseline_noise':.05}.
+    No intervention means exact preservation of original loan arrays/metadata.
     """
-    if not np.isfinite(slope) or not np.isfinite(half_width) or half_width < 0:
-        raise ValueError('Slope must be finite and half-width finite/nonnegative.')
-    a, b = max(1., abs(slope)), min(1., abs(slope))
-    if half_width >= a + b:
-        return 0.
-    if half_width <= a - b:
-        return float(1. - half_width/a)
-    return float(((a + b - half_width)/a)*((a + b - half_width)/b)/4.)
+    if not isinstance(scenario,str):
+        raise ValueError('scenario must be a string')
+    if not scenario.startswith('loan_'):
+        if uncertainty is not None:
+            raise ValueError('Use a loan_* scenario when uncertainty is explicit')
+        if scenario not in ('baseline','scarcity','noise','cancellation','additive','interaction','stripe'):
+            raise ValueError(f'Unknown scenario: {scenario}')
+        warnings.warn('Legacy uncertainty scenario now uses loan_no_bias and TOTAL split sizes; '
+                      'use scenario=loan_no_bias and uncertainty={kind: ...}.', FutureWarning, stacklevel=2)
+        aliases={'stripe_half_width':'half_width','stripe_slope':'slope',
+                 'stripe_group':'target_group','stripe_validation':'validation'}
+        uncertainty={'kind':scenario, **{aliases.get(k,k):v for k,v in legacy.items()}}
+        scenario='loan_no_bias'
+    elif legacy:
+        raise ValueError('Place uncertainty arguments inside the uncertainty mapping')
+    splits, meta = generate_loan_splits(seed=seed,scenario=scenario,train=train,
+        validation=validation,audit=audit,reference=reference,loan_overrides=loan_overrides)
+    if uncertainty is None:
+        return splits, meta
+    return apply_uncertainty(splits,meta,uncertainty,seed=seed)
 
-def stripe_width_from_rho(rho, slope = -0.5):
-    """Invert stripe_retention; rho is the fraction RETAINED, in (0, 1]."""
-    if not np.isfinite(rho) or not 0 < rho <= 1 or not np.isfinite(slope):
-        raise ValueError('rho must be in (0,1] and slope finite.')
-    a, b = max(1., abs(slope)), min(1., abs(slope))
-    if rho > b/a:
-        return float(a*(1.-rho))
-    return float(a + b - 2.*np.sqrt(a)*np.sqrt(b)*np.sqrt(rho))
-
-def stripe_region_mask(X, S, half_width, slope = -0.5):
-    """Stripe membership in raw (unstandardized) predictors, for every group."""
-    stripe_retention(half_width, slope)  # validate geometry
-    X, S = np.asarray(X), np.asarray(S)
-    if X.ndim != 2 or X.shape[1] < 2 or S.shape != (len(X), 2):
-        raise ValueError('X must be 2D with at least two columns; S must be 2D with shape (n,2).')
-    if not np.isfinite(X[:, :2]).all() or not np.isin(S, [0, 1]).all():
-        raise ValueError('Expected finite coordinates and binary S.')
-    z = X[:, :2].astype(float) - 3*(2*S.astype(float)-1)
-    return np.abs(z[:, 0] - slope*z[:, 1]) < half_width
-
-def apply_stripe(split, half_width, slope = -0.5, target_group='11'):
-    """Filter all row-aligned arrays identically, retaining original row IDs."""
-    if target_group not in GROUPS:
-        raise ValueError('stripe_group must be a quoted group ID: 00, 01, 10 or 11.')
-    inside = stripe_region_mask(split['X'], split['S'], half_width, slope)
-    keep = ~((split['group'] == GROUPS.index(target_group)) & inside)
-    if not np.any(keep & (split['group'] == GROUPS.index(target_group))):
-        raise ValueError('Stripe removed every target-group observation. Use a smaller width, larger rho, or larger split size.')
-    return {key: value[keep] for key, value in split.items()}
-
-
-def parameters(scenario='baseline', rho=1., eta=.2, strength=.15):
-    """Converts a condition into four group noise rates and four training-retention fractions."""
-    if not np.isfinite(rho) or not 0 < rho <= 1:
-        raise ValueError('rho must be in (0,1].')
-    if not np.isfinite(eta) or not 0 <= eta <= .5:
-        raise ValueError('eta must be in [0,.5].')
-    if not np.isfinite(strength) or strength < 0:
-        raise ValueError('strength must be nonnegative.')
-    noise = np.full(4, .05)
-    retain = np.ones(4)
-    if scenario == 'scarcity':
-        retain[3] = rho
-    elif scenario == 'noise':
-        noise[3] = eta
-    elif scenario in ('additive', 'interaction'):
-        pattern = np.array([0,1,1,2] if scenario == 'additive' else [0,0,0,1])
-        noise = inverse_h_bits(.30 + strength*pattern)
-    elif scenario == 'cancellation':
-        noise[0], retain[3] = eta, rho
-    elif scenario not in ('baseline', 'stripe'):
-        raise ValueError('Unknown scenario.')
-    return noise, retain
-
-def sample_split(n_per_group, seed, stream, noise, retain=None):
-    """Generates one partition with features, labels, group identifiers and oracle values.
-    Fixed stratified counts sample an equal-group audit target population."""
-    if n_per_group < 1:
-        raise ValueError('Split sizes must be positive.')
-    rng = np.random.default_rng(np.random.SeedSequence([seed, stream]))
-    n = 4*n_per_group
-    group = np.repeat(np.arange(4), n_per_group)
-    S = np.column_stack((group//2, group % 2))
-    z = rng.uniform(-1, 1, (n, 2))
-    nuisance = rng.normal(size=(n, 4))
-    # Disjoint rectangles: proxy feature support reveals group, although S is
-    # excluded from X. Translation symmetry gives equal baseline difficulty.
-    centers = 3*(2*S-1)
-    X = np.column_stack((centers+z, nuisance)).astype(np.float32)
-    score = z[:, 0] + .5*z[:, 1] + .35*np.sin(np.pi*z[:, 1])
-    clean = (score >= 0).astype(np.int64)
-    uniforms = rng.random(n)
-    y = np.bitwise_xor(clean, (uniforms < noise[group]).astype(np.int64))
-    p = noise[group] + (1-2*noise[group])*clean
-    result = dict(X=X, y=y, S=S.astype(np.int8), group=group,
-                  y_clean=clean, p_true=p, U_true=h(p), row_id=np.arange(n))
-    # Permutation prefixes guarantee nested retained training observations.
-    index = []
-    for g in range(4):
-        perm = rng.permutation(np.flatnonzero(group == g))
-        count = n_per_group if retain is None else max(1, int(np.floor(n_per_group*retain[g])))
-        index.extend(perm[:count])
-    index = np.asarray(index, dtype=int)
-    return {k: v[index] for k, v in result.items()}
-
-def generate(seed=0, scenario='baseline', rho=1., eta=.2, strength=.15,
-             train=2000, validation=500, audit=5000, reference=25000,
-             stripe_half_width=None, stripe_slope=-.5, stripe_group='11', stripe_validation=True, loan_overrides=None):
-    """Calls 'parameters()' and generates train, validation, audit and reference partitions. Returns partitions plus metadata."""
-    if scenario.startswith('loan_'):
-        if (rho != 1. or eta != .2 or strength != .15 or stripe_half_width is not None or stripe_slope != -.5 or stripe_group != '11' or stripe_validation is not True):
-            raise ValueError('Old noise/scarcity/stripe options do not apply to loan scenarios.')
-        from .loan_data import generate_loan_splits
-        return generate_loan_splits(seed=seed, scenario=scenario, train=train, validation=validation, audit=audit, reference=reference, loan_overrides=loan_overrides)
-    if loan_overrides is not None:
-        raise ValueError('loan_overrides requires a loan_* scenario')
-    # None distinguishes omitted rho from an explicitly supplied retention
-    stripe = None
-    if scenario == 'stripe':
-        if rho == 1. and (stripe_half_width is None):
-            raise ValueError('Stripe requires exactly one of rho or stripe_half_width.')
-        if stripe_group not in GROUPS or type(stripe_validation) is not bool:
-            raise ValueError('stripe_group must be a quoted group ID and stripe_validation a bool.')
-        if eta != .2 or strength != .15:
-            raise ValueError('Stripe uses baseline noise .05; eta/strength do not apply.')
-        width = stripe_width_from_rho(rho, stripe_slope) if stripe_half_width is None else float(stripe_half_width)
-        expected = stripe_retention(width, stripe_slope)
-        if expected <= 0:
-            raise ValueError('Stripe width is too large; no target-group observations remain.')
-        stripe = dict(half_width=width, slope=float(stripe_slope), group=stripe_group,
-                      requested_rho=1. if rho == 1. else float(rho), expected_retention=expected,
-                      input_mode='rho' if stripe_half_width is None else 'half_width',
-                      restrict_validation=stripe_validation, width_convention='half_width along Z1',
-                      count_policy='filter; expected retention, not exact finite counts.')
-        rho = expected
-    elif stripe_half_width is not None or stripe_slope != -.5 or stripe_group != '11' or stripe_validation is not True:
-        raise ValueError('Stripe options require scenario=stripe.')
-    rho = 1. if rho == 1. else rho
-    noise, retain = parameters(scenario, rho, eta, strength)
-    sizes = dict(train=train, validation=validation, audit=audit, reference=reference)
-    splits = {name: sample_split(n, seed, stream, noise,
-              retain if name == 'train' else None)
-              for stream, (name, n) in enumerate(sizes.items())}
-    if stripe is not None:
-        for name in ('train', 'validation') if stripe_validation else ('train',):
-            splits[name] = apply_stripe(splits[name], width, stripe_slope, stripe_group)
-            #This records expected training retention; no random thinning is applied.
-        retain[GROUPS.index(stripe_group)] = stripe['expected_retention']
-    meta = dict(seed=seed, scenario=scenario, rho=rho, eta=eta, strength=strength,
-                group_order=GROUPS, requested_per_group=sizes,
-                flip_probability=noise.tolist(), retention=retain.tolist(),
-                oracle_entropy_bits=(h(noise)/LOG2).tolist(),
-                oracle_interaction_bits=float(np.dot([1,-1,-1,1], h(noise)/LOG2)),
-                feature_names=['proxy_1','proxy_2','nuisance_1','nuisance_2','nuisance_3','nuisance_4'],
-                entropy_units='nats', numpy_version=np.__version__,
-                counts={name: np.bincount(d['group'], minlength=4).tolist()
-                        for name,d in splits.items()})
-    if stripe is not None:
-        stripe['realized_retention'] = {
-            name: meta['counts'][name][GROUPS.index(stripe_group)] / sizes[name]
-            for name in sizes}
-        meta['stripe'] = stripe
-    return splits, meta
 
 def get_spec():
     """Constructs our 'DatasetSpec', identifying protected columns, label and columns excluded from predictors.
@@ -234,7 +89,7 @@ def load_dataset(*, folder=None, **generation_kwargs):
         offset += len(df)
         frames.append(df)
     df = pd.concat(frames, ignore_index=True)
-    # Training proportions differ from the fixed equal-group audit target.
+    # Group proportions are inherited from the loan population and interventions.
     pg_table, pg = compute_pg_dirichlet(df.iloc[indices['train']])
     meta = dict(meta, spec=get_spec(), split_indices=indices, pg_source='train',
                 population_pg=meta.get('population_pg', {g: .25 for g in GROUPS}),

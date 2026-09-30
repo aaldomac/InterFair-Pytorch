@@ -10,13 +10,14 @@ from modules.metrics.uncertainty_audit import audit_uncertainties
 
 class SyntheticTests(unittest.TestCase):
     def test_paired_scarcity(self):
-        sizes = dict(train=40, validation=12, audit=16, reference=16)
-        a, _ = generate(seed=9, **sizes)
-        b, _ = generate(seed=9, scenario='scarcity', rho=.25, **sizes)
+        sizes = dict(train=160, validation=48, audit=64, reference=64)
+        a, _ = generate(seed=9, uncertainty={'kind':'baseline'}, **sizes)
+        b, _ = generate(seed=9, uncertainty={'kind':'scarcity','rho':.25}, **sizes)
         for split in ('validation', 'audit', 'reference'):
             for key in a[split]:
                 np.testing.assert_array_equal(a[split][key], b[split][key])
-        self.assertEqual(len(b['train']['y']), 130)
+        n=int((a['train']['group']==3).sum())
+        self.assertEqual(len(b['train']['y']), len(a['train']['y'])-n+max(1,int(n*.25)))
         self.assertTrue(set(b['train']['row_id']) <= set(a['train']['row_id']))
 
     def test_entropy_interaction(self):
@@ -40,13 +41,13 @@ class IntegrationTests(unittest.TestCase):
         from modules.pipelines.experiment_pipeline import run_experiment
         from modules.data.synthetic_uncertainty import load_dataset
         cfg, _ = read_config(ROOT/'configs'/'synthetic'/'smoke.yaml')
-        config = pipeline_config(cfg, dict(cfg['dataset']['kwargs'], scenario='scarcity', rho=.25, seed=0),1000)
+        config = pipeline_config(cfg, dict(cfg['dataset']['kwargs'], uncertainty={'kind':'scarcity','rho':.25}, seed=0),1000)
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp)/'run'
             result = run_experiment(config, out=out)
             data = result['pipeline_result'].data
-            self.assertEqual(data.num_features, 6)
-            self.assertEqual(len(data.train_df), 130)
+            self.assertEqual(data.num_features, 7)
+            self.assertLess(len(data.train_df), cfg['dataset']['kwargs']['train'])
             self.assertEqual(len(next(iter(data.train_loader))), 3)
             self.assertEqual(len(result['pipeline_result'].models), 2)
             self.assertTrue((out/'predictive_ensemble'/'predictor_0.pt').exists())

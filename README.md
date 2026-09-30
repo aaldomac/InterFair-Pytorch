@@ -1,5 +1,8 @@
 # InterFair-Pytorch
 
+Synthetic experiments now use one Kanubala loan generator plus composable uncertainty
+interventions. See [docs/UNIFIED_SYNTHETIC.md](docs/UNIFIED_SYNTHETIC.md).
+
 Real and synthetic experiments share data preparation, training, ensemble evaluation,
 uncertainty auditing and artifact saving. `experiments/` contains generated outputs only.
 Refactored from branch `refactor-organize`, commit `8fb2f6a6144974774596ec543a45cb5f011cc93f`.
@@ -12,9 +15,9 @@ Use Python 3.10+ and install a PyTorch build suitable for your machine, then:
 pip install -r requirements-core.txt
 python -m scripts.run_experiment --config configs/synthetic/smoke.yaml --dry-run
 python -m scripts.run_experiment --config configs/synthetic/smoke.yaml
-python -m scripts.summarize experiments/smoke
-python -m scripts.report experiments/smoke
-python -m scripts.plot_uncertainty_bars --input experiments/smoke --out experiments/smoke/figures/bars
+python -m scripts.summarize experiments/loan_uncertainty_smoke
+python -m scripts.report experiments/loan_uncertainty_smoke
+python -m scripts.plot_uncertainty_bars --input experiments/loan_uncertainty_smoke --out experiments/loan_uncertainty_smoke/figures/bars
 ```
 
 `train_predictive.py --config ...` is an equivalent training entry point.
@@ -48,10 +51,10 @@ model_seed_base: 1000
 data_seeds: [0, 1, 2]
 dataset:
   name: synthetic_uncertainty
-  kwargs: {train: 2000, validation: 500, audit: 5000, reference: 25000}
+  kwargs: {scenario: loan_no_bias, train: 8000, validation: 2000, audit: 20000, reference: 100000}
 conditions:
-  baseline: {scenario: baseline}
-  scarcity: {scenario: scarcity, rho: 0.25}
+  baseline: {uncertainty: {kind: baseline, baseline_noise: 0.05}}
+  scarcity: {uncertainty: {kind: scarcity, rho: 0.25, baseline_noise: 0.05}}
 pipeline:
   n_models: 5
   append_protected_to_predictor: false
@@ -72,7 +75,7 @@ do not establish a two-attribute interaction design. Omit weights for general da
 `F_U_int` is then null. Group disparities support arbitrary observed groups and use
 `log(number_of_classes)` normalization for multiclass tasks.
 
-Synthetic split sizes are **per group**, except `loan_*` sizes, which are **total rows**.
+All synthetic split sizes are **total rows before intervention**.
 The original loan predictors include Gender and Race even when
 `append_protected_to_predictor: false`; that flag prevents appending S1/S2, not removal
 of the loan model's original predictors. The generator's outcome coding is preserved.
@@ -122,7 +125,7 @@ Each run is under `experiments/<study>/runs/<condition>/seed_<seed>/`:
 Re-audit saved predictions with changed audit settings, without retraining:
 
 ```bash
-python -m scripts.audit --run experiments/smoke/runs/baseline/seed_0 --config configs/synthetic/smoke.yaml --out experiments/smoke/re_audit
+python -m scripts.audit --run experiments/loan_uncertainty_smoke/runs/baseline/seed_0 --config configs/synthetic/smoke.yaml --out experiments/loan_uncertainty_smoke/re_audit
 ```
 
 That command recalculates general uncertainty/predictive metrics; synthetic oracle
@@ -132,11 +135,12 @@ Load trained models and fitted preprocessing with
 joblib preprocessing artifacts.
 
 ```bash
-python -m scripts.plot_synthetic --run experiments/smoke/runs/baseline/seed_0 --ensemble
+python -m scripts.plot_synthetic --run experiments/loan_uncertainty_smoke/runs/baseline/seed_0 --ensemble
 python -m unittest discover -s tests -v
 ```
 
-Synthetic spatial plots apply to the four-square generator, not loan data.
+Synthetic plots show observed loan rows projected onto two chosen features, with optional
+ensemble predictions and uncertainty colors evaluated on full feature vectors.
 General condition bar plots and summaries work for both real and synthetic results.
 `report` is the specialized four-group synthetic oracle report.
 

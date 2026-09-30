@@ -1,13 +1,32 @@
-output: experiments/smoke
+# Integration check, not a scientific result. All sizes are TOTAL rows.
+output: experiments/loan_uncertainty_smoke
 model_seed_base: 1000
 data_seeds:
 - 0
 conditions:
   baseline:
-    scenario: baseline
+    uncertainty:
+      kind: baseline
+      baseline_noise: 0.05
   scarcity:
-    scenario: scarcity
-    rho: 0.25
+    uncertainty:
+      kind: scarcity
+      rho: 0.25
+      baseline_noise: 0.05
+  noise:
+    uncertainty:
+      kind: noise
+      eta: 0.3
+  cancellation:
+    uncertainty:
+      kind: cancellation
+      eta: 0.3
+      rho: 0.25
+  stripe:
+    uncertainty:
+      kind: stripe
+      rho: 0.5
+      validation: false
 pipeline:
   n_models: 2
   append_protected_to_predictor: false
@@ -33,10 +52,11 @@ pipeline:
 dataset:
   name: synthetic_uncertainty
   kwargs:
-    train: 40
-    validation: 16
-    audit: 24
-    reference: 24
+    train: 160
+    validation: 64
+    audit: 96
+    reference: 96
+    scenario: loan_no_bias
 audit:
   enabled: true
   alpha: 0.05

@@ -215,11 +215,11 @@ def stripe_region_report(folder, conditions=None, digits=4):
             continue
         audit = read_json(path/('audit' if (path/'audit').exists() else 'synthetic_audit')/'uncertainty_audit.json')
         for region in audit.get('stripe_regions', []):
-            rows.append(dict(condition=condition, seed=audit['audit_seed'], **region))
+            rows.append(dict(condition=condition, seed=audit['data_seed'], **region))
     if not rows:
         return '', {}
     frame = pd.DataFrame(rows)
-    exports = {'stripe_regionscsv': frame.to_csv(index=False)}
+    exports = {'stripe_regions.csv': frame.to_csv(index=False)}
     # Exclude empty regions explicitly: runs counts nonempty run-level estimates.
     valid = frame[frame.support > 0]
     keys = ['condition', 'group', 'region']

@@ -1,40 +1,36 @@
-# All sizes are TOTAL rows before intervention. Base generator: Kanubala.
-output: experiments/loan_uncertainty_pilot
+output: experiments/loan_combined
 model_seed_base: 1000
 data_seeds:
 - 0
 - 1
 conditions:
-  baseline:
-    uncertainty:
-      kind: baseline
-      baseline_noise: 0.05
-  scarcity:
-    uncertainty:
-      kind: scarcity
-      rho: 0.125
-      baseline_noise: 0.05
-  noise:
+  no_bias:
+    scenario: loan_no_bias
+    uncertainty: null
+  intersectional:
+    scenario: loan_intersectional
+    uncertainty: null
+  no_bias_noise:
+    scenario: loan_no_bias
     uncertainty:
       kind: noise
       eta: 0.3
-      baseline_noise: 0.05
-  additive:
+      baseline_noise: 0.0
+  intersectional_noise:
+    scenario: loan_intersectional
     uncertainty:
-      kind: additive
-      strength: 0.2
-      entropy_base: 0.3
-  interaction:
-    uncertainty:
-      kind: interaction
-      strength: 0.2
-      entropy_base: 0.3
-  cancellation:
-    uncertainty:
-      kind: cancellation
+      kind: noise
       eta: 0.3
-      rho: 0.125
-      baseline_noise: 0.05
+      baseline_noise: 0.0
+  intersectional_noise_scarcity:
+    scenario: loan_intersectional
+    uncertainty:
+      kind: custom
+      baseline_noise: 0.0
+      flip_probability:
+        '11': 0.3
+      retention:
+        '11': 0.25
 pipeline:
   n_models: 10
   append_protected_to_predictor: false
