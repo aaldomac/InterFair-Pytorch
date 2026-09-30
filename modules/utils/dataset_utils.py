@@ -121,7 +121,7 @@ def _infer_cat_and_cont_cols(
     cont_cols = []
 
     for col in feature_cols:
-        if pd.api.types.is_object_dtype(df[col]) or pd.api.types.is_categorical_dtype(df[col]):
+        if pd.api.types.is_object_dtype(df[col]) or isinstance(df[col].dtype, pd.CategoricalDtype):
             cat_cols.append(col)
         else:
             cont_cols.append(col)

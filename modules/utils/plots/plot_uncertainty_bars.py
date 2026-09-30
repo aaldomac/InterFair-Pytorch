@@ -1,7 +1,7 @@
 """Grouped horizontal bars for arbitrary conditions and numerical metrics.
 
 Examples (from project root):
- python -m experiments.synthetic.plot_uncertainty_bars --input experiments/synthetic/results/kanubala --metrics F_tot F_U F_hidden F_U_int I_alea I_tot
+ python -m scripts.plot_uncertainty_bars --input experiments/kanubala --metrics F_tot F_U F_hidden F_U_int I_alea I_tot
  python plot_uncertainty_bars.py --input report/runs.csv --metrics F_alea F_epis --scale none
 
 Input: experiment root (reads completed runs via sibling report.py), per-run CSV,
@@ -45,18 +45,22 @@ def read_results(source):
     if source.is_file():
         return pd.read_csv(source,dtype={'condition':str,'group':str,'scenario':str})
     if (source/'runs').is_dir():
-        try:
-            from .report import load_results
-        except ImportError:
-            from report import load_results
-        return load_results(source)[0]
+        files = sorted(p for p in (source/'runs').glob('*/*/summary.csv')
+                       if (p.parent/'COMPLETE').exists())
+        if not files:
+            raise ValueError('No completed runs found')
+        frame = pd.concat([pd.read_csv(p) for p in files], ignore_index=True)
+        frame = frame.rename(columns={'data_seed':'seed'})
+        if 'hidden_normalized' in frame:
+            frame['F_hidden'] = frame['hidden_normalized']
+        return frame
     if (source/'runs.csv').is_file():
         return pd.read_csv(source/'runs.csv',dtype={'condition':str})
     raise ValueError('Use an experiment root, report directory, or a CSV file.')
 
 def summarize_metrics(frame, metrics, *, condition_col='condition', conditions=None, seed_col='seed', input_format='runs'):
     """Return condition/metric/std/n; each row must be an independent run.
-    
+
     For precomputed long summaries select input_format='summary'.
     Missing metrics/conditions or nonfinite means are rejected, not plotted as zero.
     """

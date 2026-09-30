@@ -1,3 +1,5 @@
+> Historical scientific background, retained from the source branch. For the current API and paths, use README.md and docs/REFACTOR.md.
+
 # Synthetic uncertainty experiments
 
 Extract this archive at your existing project's root. It adds only
@@ -23,9 +25,9 @@ Do not copy or modify your existing modules for this experiment.
 ## First run
 
 ```bash
-python -m experiments.synthetic.run --config experiments/synthetic/configs/smoke.yaml --dry-run
-python -m unittest experiments.synthetic.tests -v
-python -m experiments.synthetic.run --config experiments/synthetic/configs/smoke.yaml
+python -m scripts.run_experiment --config configs/synthetic/smoke.yaml --dry-run
+python -m unittest tests.test_synthetic -v
+python -m scripts.run_experiment --config configs/synthetic/smoke.yaml
 ```
 
 `--dry-run` validates generation settings and lists destinations without training.
@@ -41,14 +43,14 @@ Existing dependencies: NumPy, pandas, scikit-learn (>=1.2 for your
 Start with one condition and seed:
 
 ```bash
-python -m experiments.synthetic.run --config experiments/synthetic/configs/main.yaml --condition baseline --seed 0
+python -m scripts.run_experiment --config configs/synthetic/main.yaml --condition baseline --seed 0
 ```
 
 For the full sweep, use a fresh `output` in YAML and omit both filters:
 
 ```bash
-python -m experiments.synthetic.run --config experiments/synthetic/configs/main.yaml
-python -m experiments.synthetic.summarize experiments/synthetic/results/main
+python -m scripts.run_experiment --config configs/synthetic/main.yaml
+python -m scripts.summarize experiments/main
 ```
 
 The full supplied configuration fits **800 networks**, potentially a long run.
@@ -59,7 +61,7 @@ pairs or set a new output directory. Do not run concurrent writers to one destin
 To generate raw data without training:
 
 ```bash
-python -m experiments.synthetic.run --config experiments/synthetic/configs/smoke.yaml --generate-only
+python -m scripts.run_experiment --config configs/synthetic/smoke.yaml --generate-only
 ```
 
 Generated-only outputs use `generated/`, distinct from trained `runs/`.

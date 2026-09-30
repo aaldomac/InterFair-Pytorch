@@ -1,8 +1,8 @@
 """Plot saved synthetic data; optionally evaluate a saved deep ensemble.
 
-Place in experiments/synthetic/ and run from the project root:
-  python -m experiments.synthetic.plot_synthetic --run PATH_TO_SEED_FOLDER
-  python -m experiments.synthetic.plot_synthetic --run PATH_TO_SEED_FOLDER --ensemble
+Run from the project root:
+  python -m scripts.plot_synthetic --run PATH_TO_SEED_FOLDER
+  python -m scripts.plot_synthetic --run PATH_TO_SEED_FOLDER --ensemble
 
 --run accepts a trained run (containing synthetic_data/) or a generated-only
 folder (containing metadata.json and train.npz). No data are regenerated and
@@ -161,35 +161,9 @@ def plot_data(data, meta, xy, oracle, args, output):
 
 
 def load_ensemble(run, data_folder, device):
-    """Rebuild the existing MLP from saved config; reuse fitted preprocessing.
-
-    A local adapter is necessary because the supplied loading_utils still
-    imports legacy model/dataset names. No preprocessing is fitted here.
-    """
-    import joblib
-    import torch
-    from modules.predictive.models import MLPClassifier
-    config = json.loads((run / 'config.json').read_text())
-    metadata = json.loads((run / 'models' / 'model_metadata.json').read_text())
-    binary = bool(metadata['binary'])
-    candidates = [run / 'preprocessing' / 'predictor' / 'predictor_preprocessing_schema.joblib',
-                  data_folder / 'preprocessing' / 'predictor' / 'predictor_preprocessing_schema.joblib']
-    schema_file = next((p for p in candidates if p.is_file()), None)
-    if schema_file is None:
-        raise FileNotFoundError('Saved predictor_preprocessing_schema.joblib is required; preprocessing will not be refitted.')
-    schema = joblib.load(schema_file)
-    models = []
-    for i in range(int(metadata['n_models'])):
-        model = MLPClassifier(input_dim=int(metadata['num_features']),
-                              num_outputs=1 if binary else int(metadata['num_classes']),
-                              hidden_dims=tuple(config['model']['hidden_dims']),
-                              dropout=float(config['model']['dropout']))
-        checkpoint = run / 'predictive_ensemble' / f'predictor_{i}.pt'
-        model.load_state_dict(torch.load(checkpoint, map_location='cpu', weights_only=True))
-        models.append(model.to(device).eval())
-    if not models:
-        raise ValueError('No ensemble members recorded.')
-    return models, schema, binary
+    """Load shared checkpoints and the saved train-fitted preprocessing."""
+    from modules.utils.checkpoint_utils import load_ensemble as load_saved
+    return load_saved(run, device=device)
 
 
 def evaluate_grid(xy, meta, models, schema, binary, args):

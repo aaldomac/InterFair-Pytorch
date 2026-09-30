@@ -735,3 +735,7 @@ def get_classical_and_uncertainty_matrices(
             matrices[key] = _to_numpy(item["pairwise_matrix"])
 
     return matrices
+# Shared condition/metric plotting API. CLI lives in scripts.plot_uncertainty_bars.
+from modules.utils.plots.plot_uncertainty_bars import (
+    plot_grouped_bars, summarize_metrics, scale_summary,
+)

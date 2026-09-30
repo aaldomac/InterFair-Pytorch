@@ -1,0 +1,49 @@
+output: experiments/smoke
+model_seed_base: 1000
+data_seeds:
+- 0
+conditions:
+  baseline:
+    scenario: baseline
+  scarcity:
+    scenario: scarcity
+    rho: 0.25
+pipeline:
+  n_models: 2
+  append_protected_to_predictor: false
+  device: cpu
+  model:
+    hidden_dims:
+    - 16
+    - 8
+    dropout: 0.0
+  optimizer:
+    lr: 0.001
+    weight_decay: 0.0001
+  loader:
+    batch_size: 32
+    eval_batch_size: 64
+    shuffle_train: true
+  train:
+    epochs: 2
+    patience: 2
+    binary: true
+    restore_best: true
+    verbose: false
+dataset:
+  name: synthetic_uncertainty
+  kwargs:
+    train: 40
+    validation: 16
+    audit: 24
+    reference: 24
+audit:
+  enabled: true
+  alpha: 0.05
+  interaction_weights:
+    '0': 1
+    '1': -1
+    '2': -1
+    '3': 1
+  fairness: true
+  distribution: true

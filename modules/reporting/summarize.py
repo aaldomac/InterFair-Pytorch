@@ -5,7 +5,7 @@ import pandas as pd
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('folder',type=Path,help='e.g. experiments/synthetic/results/main')
+    p.add_argument('folder',type=Path,help='e.g. experiments/main')
     args=p.parse_args()
     files=sorted(path for path in (args.folder/'runs').glob('*/*/summary.csv')
                  if (path.parent/'COMPLETE').exists())

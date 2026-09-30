@@ -60,3 +60,7 @@ checkpoints/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Experiment source lives in modules/, scripts/, and configs/.
+experiments/*
+!experiments/.gitkeep

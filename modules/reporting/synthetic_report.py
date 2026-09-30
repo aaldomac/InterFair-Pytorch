@@ -1,8 +1,8 @@
 """Display saved synthetic audits and export CSV/LaTeX tables. No PyTorch needed.
 
 From project root:
-  python -m experiments.synthetic.report experiments/synthetic/results/pilot
-  python -m experiments.synthetic.report experiments/synthetic/results/pilot --pairs
+  python -m scripts.report experiments/pilot
+  python -m scripts.report experiments/pilot --pairs
 
 Requires NumPy and pandas. Reads completed runs directly, not summarize.py output.
 Exports derived reports only; never edits models, audits or original summaries.
@@ -48,8 +48,8 @@ def load_results(folder, conditions=None):
             skipped.append(str(path))
             continue
         try:
-            audit = read_json(path/'synthetic_audit'/'uncertainty_audit.json')
-            quality = read_json(path/'synthetic_audit'/'predictive_metrics.json')
+            audit = read_json(path/('audit' if (path/'audit').exists() else 'synthetic_audit')/'uncertainty_audit.json')
+            quality = read_json(path/('audit' if (path/'audit').exists() else 'synthetic_audit')/'predictive_metrics.json')
             meta = read_json(path/'synthetic_data'/'metadata.json')
             seed = int(path.name.removeprefix('seed_'))
             if seed != audit['data_seed'] or seed != meta['seed']:
@@ -78,7 +78,7 @@ def load_results(folder, conditions=None):
                 row['I_'+c] = interaction[i]
             row['I_oracle'] = meta['oracle_interaction_bits']*np.log(2.)
             finite([row[k] for k in QUALITY+DISPARITY+['I_alea','I_epis','I_tot','I_oracle']], 'metrics')
-            group_quality = pd.read_csv(path/'synthetic_audit'/'group_predictive_metrics.csv')
+            group_quality = pd.read_csv(path/('audit' if (path/'audit').exists() else 'synthetic_audit')/'group_predictive_metrics.csv')
             if set(group_quality.group_id) != set(range(4)) or len(group_quality) != 4:
                 raise ValueError('Invalid group quality IDs')
             group_quality = group_quality.set_index('group_id')
@@ -109,7 +109,6 @@ def load_results(folder, conditions=None):
             raise ValueError(f'Cannot report completed run {path}: {exc}') from exc
     if conditions and set(conditions)-found:
         raise ValueError(f'Conditions not found: {sorted(set(conditions)-found)}')
-    print(f"Runs in report: {runs}")
     if not runs:
         raise ValueError('No completed runs found under folder/runs/<condition>/seed_*')
     return pd.DataFrame(runs), pd.DataFrame(groups), pd.DataFrame(pairs), skipped
@@ -214,7 +213,7 @@ def stripe_region_report(folder, conditions=None, digits=4):
         condition = path.parent.name
         if conditions and condition not in conditions:
             continue
-        audit = read_json(path/'synthetic_audit'/'uncertainty_audit.json')
+        audit = read_json(path/('audit' if (path/'audit').exists() else 'synthetic_audit')/'uncertainty_audit.json')
         for region in audit.get('stripe_regions', []):
             rows.append(dict(condition=condition, seed=audit['audit_seed'], **region))
     if not rows:
@@ -233,11 +232,11 @@ def stripe_region_report(folder, conditions=None, digits=4):
             + display.to_string(index=False)
             + '\nRegion boundaries vary with the condition width. Empty regions are '
               'omitted from this table; supports for every run are in stripe_regions.csv.\n')
-    return text, exports 
+    return text, exports
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__,formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('folder',type=Path,help='Experiment root, e.g. experiments/synthetic/results/pilot')
+    parser.add_argument('folder',type=Path,help='Experiment root, e.g. experiments/pilot')
     parser.add_argument('--condition',action='append',help='Filter condition (repeatable)')
     parser.add_argument('--digits',type=int,default=4,help='Display/LaTeX decimal places, default 4')
     parser.add_argument('--pairs',action='store_true',help='Also display/export LaTeX for all pairwise comparisons')

@@ -1,0 +1,108 @@
+output: experiments/main
+model_seed_base: 1000
+data_seeds:
+- 0
+- 1
+- 2
+- 3
+- 4
+conditions:
+  baseline:
+    scenario: baseline
+  scarcity_050:
+    scenario: scarcity
+    rho: 0.5
+  scarcity_025:
+    scenario: scarcity
+    rho: 0.25
+  scarcity_0125:
+    scenario: scarcity
+    rho: 0.125
+  noise_010:
+    scenario: noise
+    eta: 0.1
+  noise_020:
+    scenario: noise
+    eta: 0.2
+  noise_030:
+    scenario: noise
+    eta: 0.3
+  additive_000:
+    scenario: additive
+    strength: 0.0
+  additive_010:
+    scenario: additive
+    strength: 0.1
+  additive_020:
+    scenario: additive
+    strength: 0.2
+  additive_030:
+    scenario: additive
+    strength: 0.3
+  interaction_000:
+    scenario: interaction
+    strength: 0.0
+  interaction_010:
+    scenario: interaction
+    strength: 0.1
+  interaction_020:
+    scenario: interaction
+    strength: 0.2
+  interaction_030:
+    scenario: interaction
+    strength: 0.3
+  cancellation:
+    scenario: cancellation
+    eta: 0.3
+    rho: 0.125
+  stripe_r025:
+    scenario: stripe
+    rho: 0.25
+    stripe_slope: -0.5
+  stripe_r050:
+    scenario: stripe
+    rho: 0.5
+    stripe_slope: -0.5
+  stripe_r075:
+    scenario: stripe
+    rho: 0.75
+    stripe_slope: -0.5
+pipeline:
+  n_models: 5
+  append_protected_to_predictor: false
+  device: null
+  model:
+    hidden_dims:
+    - 128
+    - 64
+    dropout: 0.0
+  optimizer:
+    lr: 0.001
+    weight_decay: 0.0001
+  loader:
+    batch_size: 128
+    eval_batch_size: 512
+    shuffle_train: true
+  train:
+    epochs: 300
+    patience: 30
+    binary: true
+    restore_best: true
+    verbose: true
+dataset:
+  name: synthetic_uncertainty
+  kwargs:
+    train: 2000
+    validation: 500
+    audit: 5000
+    reference: 25000
+audit:
+  enabled: true
+  alpha: 0.05
+  interaction_weights:
+    '0': 1
+    '1': -1
+    '2': -1
+    '3': 1
+  fairness: true
+  distribution: true

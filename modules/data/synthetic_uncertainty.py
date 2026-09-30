@@ -1,44 +1,13 @@
-"""Controlled intersectional classification data. NumPy generation; project preparation uses your pandas/sklearn/PyTorch utilities.
+"""Synthetic DGP and fixed-split adapter to your PreparedData contract.
 
-Examples:
-  python -m modules.data.synthetic_uncertainty --self-test
-  python -m modules.data.synthetic_uncertainty --scenario scarcity --rho .125 --out data/scarce
-  python -m modules.data.synthetic_uncertainty --scenario additive --strength .15 --out data/add
-
-Train ONLY on X and y. S, group, y_clean, p_true, U_true, row_id are audit/oracle
-metadata, not predictors. Group order: 00,01,10,11. Entropies use natural logs.
-Same seed and split sizes couple covariates, label uniforms and nested training
-subsets across conditions. Validation/audit/reference streams are independent.
-Reference is for integration after fitting, NEVER model selection.
-run_synthetic_experiment delegates training to your existing predictive pipeline.
-The command-line interface remains data generation only.
-
-Training from your project root (existing user modules are left unchanged):
-    from modules.data.synthetic_uncertainty import run_synthetic_experiment
-    from modules.pipelines.train_predictive_pipeline import (
-        PipelineConfig, SplitConfig, ModelConfig)
-    from modules.predictive.trainer import TrainConfig
-    config = PipelineConfig(
-        dataset_name="synthetic_uncertainty",
-        dataset_kwargs={"scenario": "scarcity", "rho": .125, "seed": 0},
-        split=SplitConfig(seed=1000),
-        model=ModelConfig(hidden_dims=(128, 64), dropout=0.0),
-        train=TrainConfig(epochs=300, patience=30, binary=True),
-        n_models=10, append_protected_to_predictor=False)
-    result = run_synthetic_experiment(config, out="experiments/scarcity_seed0")
-
-Use this runner instead of run_predictive_pipeline for synthetic data: the latter
-always randomly resplits its input. All model training is delegated unchanged to
-its train_models function. This implements deep ensembles, not MC dropout/Laplace.
+X contains strong protected-attribute proxies. Oracle columns never enter X.
+Validation/audit/reference remain fixed across paired scarcity conditions.
 """
-import argparse
 import json
 from pathlib import Path
 import numpy as np
-
 GROUPS = ['00', '01', '10', '11']
 LOG2 = float(np.log(2.0))
-
 
 def h(p):
     """Binary entropy, including exact endpoints."""
@@ -49,8 +18,8 @@ def h(p):
     r = np.clip(1-p, np.finfo(float).tiny, 1)
     return -p*np.log(q)-(1-p)*np.log(r)
 
-
 def inverse_h_bits(target):
+    """ Find a label-flip probability whose binary entropy equals 'target' bits."""
     target = np.asarray(target, dtype=float)
     if np.any(~np.isfinite(target)) or np.any((target < 0) | (target > 1)):
         raise ValueError('Entropy targets must lie in [0,1] bits.')
@@ -62,8 +31,53 @@ def inverse_h_bits(target):
         hi = np.where(low, hi, mid)
     return (lo+hi)/2
 
+def stripe_retention(half_width, slope = -0.5):
+    """Population P(|Z1-slope*Z2| >= half_widt), Z1,Z2 iid U[-1,1].
+    Width is along Z1, not perpendicular to the stripe. SIgn of slope does not change its area.
+    This is an analytic population fraction, not a count.
+    """
+    if not np.isfinite(slope) or not np.isfinite(half_width) or half_width < 0:
+        raise ValueError('Slope must be finite and half-width finite/nonnegative.')
+    a, b = max(1., abs(slope)), min(1., abs(slope))
+    if half_width >= a + b:
+        return 0.
+    if half_width <= a - b:
+        return float(1. - half_width/a)
+    return float(((a + b - half_width)/a)*((a + b - half_width)/b)/4.)
+
+def stripe_width_from_rho(rho, slope = -0.5):
+    """Invert stripe_retention; rho is the fraction RETAINED, in (0, 1]."""
+    if not np.isfinite(rho) or not 0 < rho <= 1 or not np.isfinite(slope):
+        raise ValueError('rho must be in (0,1] and slope finite.')
+    a, b = max(1., abs(slope)), min(1., abs(slope))
+    if rho > b/a:
+        return float(a*(1.-rho))
+    return float(a + b - 2.*np.sqrt(a)*np.sqrt(b)*np.sqrt(rho))
+
+def stripe_region_mask(X, S, half_width, slope = -0.5):
+    """Stripe membership in raw (unstandardized) predictors, for every group."""
+    stripe_retention(half_width, slope)  # validate geometry
+    X, S = np.asarray(X), np.asarray(S)
+    if X.ndim != 2 or X.shape[1] < 2 or S.shape != (len(X), 2):
+        raise ValueError('X must be 2D with at least two columns; S must be 2D with shape (n,2).')
+    if not np.isfinite(X[:, :2]).all() or not np.isin(S, [0, 1]).all():
+        raise ValueError('Expected finite coordinates and binary S.')
+    z = X[:, :2].astype(float) - 3*(2*S.astype(float)-1)
+    return np.abs(z[:, 0] - slope*z[:, 1]) < half_width
+
+def apply_stripe(split, half_width, slope = -0.5, target_group='11'):
+    """Filter all row-aligned arrays identically, retaining original row IDs."""
+    if target_group not in GROUPS:
+        raise ValueError('stripe_group must be a quoted group ID: 00, 01, 10 or 11.')
+    inside = stripe_region_mask(split['X'], split['S'], half_width, slope)
+    keep = ~((split['group'] == GROUPS.index(target_group)) & inside)
+    if not np.any(keep & (split['group'] == GROUPS.index(target_group))):
+        raise ValueError('Stripe removed every target-group observation. Use a smaller width, larger rho, or larger split size.')
+    return {key: value[keep] for key, value in split.items()}
+
 
 def parameters(scenario='baseline', rho=1., eta=.2, strength=.15):
+    """Converts a condition into four group noise rates and four training-retention fractions."""
     if not np.isfinite(rho) or not 0 < rho <= 1:
         raise ValueError('rho must be in (0,1].')
     if not np.isfinite(eta) or not 0 <= eta <= .5:
@@ -81,13 +95,13 @@ def parameters(scenario='baseline', rho=1., eta=.2, strength=.15):
         noise = inverse_h_bits(.30 + strength*pattern)
     elif scenario == 'cancellation':
         noise[0], retain[3] = eta, rho
-    elif scenario != 'baseline':
+    elif scenario not in ('baseline', 'stripe'):
         raise ValueError('Unknown scenario.')
     return noise, retain
 
-
 def sample_split(n_per_group, seed, stream, noise, retain=None):
-    """Fixed stratified counts sample an equal-group audit target population."""
+    """Generates one partition with features, labels, group identifiers and oracle values.
+    Fixed stratified counts sample an equal-group audit target population."""
     if n_per_group < 1:
         raise ValueError('Split sizes must be positive.')
     rng = np.random.default_rng(np.random.SeedSequence([seed, stream]))
@@ -116,14 +130,49 @@ def sample_split(n_per_group, seed, stream, noise, retain=None):
     index = np.asarray(index, dtype=int)
     return {k: v[index] for k, v in result.items()}
 
-
 def generate(seed=0, scenario='baseline', rho=1., eta=.2, strength=.15,
-             train=2000, validation=500, audit=5000, reference=25000):
+             train=2000, validation=500, audit=5000, reference=25000,
+             stripe_half_width=None, stripe_slope=-.5, stripe_group='11', stripe_validation=True, loan_overrides=None):
+    """Calls 'parameters()' and generates train, validation, audit and reference partitions. Returns partitions plus metadata."""
+    if scenario.startswith('loan_'):
+        if (rho != 1. or eta != .2 or strength != .15 or stripe_half_width is not None or stripe_slope != -.5 or stripe_group != '11' or stripe_validation is not True):
+            raise ValueError('Old noise/scarcity/stripe options do not apply to loan scenarios.')
+        from .loan_data import generate_loan_splits
+        return generate_loan_splits(seed=seed, scenario=scenario, train=train, validation=validation, audit=audit, reference=reference, loan_overrides=loan_overrides)
+    if loan_overrides is not None:
+        raise ValueError('loan_overrides requires a loan_* scenario')
+    # None distinguishes omitted rho from an explicitly supplied retention
+    stripe = None
+    if scenario == 'stripe':
+        if rho == 1. and (stripe_half_width is None):
+            raise ValueError('Stripe requires exactly one of rho or stripe_half_width.')
+        if stripe_group not in GROUPS or type(stripe_validation) is not bool:
+            raise ValueError('stripe_group must be a quoted group ID and stripe_validation a bool.')
+        if eta != .2 or strength != .15:
+            raise ValueError('Stripe uses baseline noise .05; eta/strength do not apply.')
+        width = stripe_width_from_rho(rho, stripe_slope) if stripe_half_width is None else float(stripe_half_width)
+        expected = stripe_retention(width, stripe_slope)
+        if expected <= 0:
+            raise ValueError('Stripe width is too large; no target-group observations remain.')
+        stripe = dict(half_width=width, slope=float(stripe_slope), group=stripe_group,
+                      requested_rho=1. if rho == 1. else float(rho), expected_retention=expected,
+                      input_mode='rho' if stripe_half_width is None else 'half_width',
+                      restrict_validation=stripe_validation, width_convention='half_width along Z1',
+                      count_policy='filter; expected retention, not exact finite counts.')
+        rho = expected
+    elif stripe_half_width is not None or stripe_slope != -.5 or stripe_group != '11' or stripe_validation is not True:
+        raise ValueError('Stripe options require scenario=stripe.')
+    rho = 1. if rho == 1. else rho
     noise, retain = parameters(scenario, rho, eta, strength)
     sizes = dict(train=train, validation=validation, audit=audit, reference=reference)
     splits = {name: sample_split(n, seed, stream, noise,
               retain if name == 'train' else None)
               for stream, (name, n) in enumerate(sizes.items())}
+    if stripe is not None:
+        for name in ('train', 'validation') if stripe_validation else ('train',):
+            splits[name] = apply_stripe(splits[name], width, stripe_slope, stripe_group)
+            #This records expected training retention; no random thinning is applied.
+        retain[GROUPS.index(stripe_group)] = stripe['expected_retention']
     meta = dict(seed=seed, scenario=scenario, rho=rho, eta=eta, strength=strength,
                 group_order=GROUPS, requested_per_group=sizes,
                 flip_probability=noise.tolist(), retention=retain.tolist(),
@@ -133,93 +182,29 @@ def generate(seed=0, scenario='baseline', rho=1., eta=.2, strength=.15,
                 entropy_units='nats', numpy_version=np.__version__,
                 counts={name: np.bincount(d['group'], minlength=4).tolist()
                         for name,d in splits.items()})
+    if stripe is not None:
+        stripe['realized_retention'] = {
+            name: meta['counts'][name][GROUPS.index(stripe_group)] / sizes[name]
+            for name in sizes}
+        meta['stripe'] = stripe
     return splits, meta
 
-
-def uncertainty(member_p):
-    """Input shape (M,N): class-1 probabilities from coherent model draws."""
-    p = np.asarray(member_p, dtype=float)
-    if p.ndim != 2 or min(p.shape) < 1:
-        raise ValueError('Expected nonempty (M,N) array.')
-    alea = h(p).mean(axis=0)
-    total = h(p.mean(axis=0))
-    return np.column_stack((alea, total-alea, total))
-
-
-def audit_predictions(member_p, groups, alpha=.05):
-    """Group means, all pair disparities, maxima, and simultaneous Hoeffding radii.
-
-    F_U uses max(component gaps)/log(2). Hidden maxima are computed pairwise,
-    never by combining component maxima attained by different group pairs.
-    """
-    u = uncertainty(member_p)
-    groups = np.asarray(groups)
-    if groups.shape != (len(u),) or not np.isin(groups, range(4)).all():
-        raise ValueError('Expected one valid group id per observation.')
-    counts = np.array([(groups == g).sum() for g in range(4)])
-    if min(counts) == 0 or not 0 < alpha < 1:
-        raise ValueError('All groups must be present and alpha in (0,1).')
-    means = np.array([u[groups == g].mean(axis=0) for g in range(4)])
-    pairs = {}
-    for a in range(4):
-        for b in range(a+1,4):
-            da,de,dt = means[a]-means[b]
-            pairs[f'{GROUPS[a]}-{GROUPS[b]}'] = dict(
-                F_alea=abs(da), F_epis=abs(de), F_tot=abs(dt),
-                F_U=max(abs(da),abs(de))/LOG2,
-                hidden_normalized=max(0., abs(da)+abs(de)-abs(dt))/(2*LOG2))
-    interaction = np.array([1,-1,-1,1]) @ means
-    return dict(component_order=['alea','epis','tot'], means=means.tolist(),
-                counts=counts.tolist(), pairs=pairs,
-                maxima={k:max(v[k] for v in pairs.values()) for k in next(iter(pairs.values()))},
-                interaction=interaction.tolist(),
-                F_U_int=float(max(abs(interaction[:2]))/(2*LOG2)),
-                hoeffding_component_radii=(LOG2*np.sqrt(np.log(16/alpha)/(2*counts))).tolist())
-
-
-def self_test():
-    # Exact entropy-scale null and alternative, not an additive noise surrogate.
-    for scenario, expected in [('additive',0.), ('interaction',.15)]:
-        n,_ = parameters(scenario)
-        np.testing.assert_allclose(np.dot([1,-1,-1,1], h(n)/LOG2), expected, atol=1e-12)
-    a,_ = generate(seed=7, train=100, validation=20, audit=20, reference=20)
-    b,_ = generate(seed=7, scenario='scarcity', rho=.25, train=100, validation=20, audit=20, reference=20)
-    for split in ['validation','audit','reference']:
-        for k in a[split]:
-            np.testing.assert_array_equal(a[split][k],b[split][k])
-    assert len(b['train']['y']) == 325
-    assert set(b['train']['row_id']) <= set(a['train']['row_id'])
-    # Population Bayes probabilities repeated across members have zero disagreement.
-    oracle = audit_predictions(np.tile(a['audit']['p_true'], (3,1)), a['audit']['group'])
-    np.testing.assert_allclose(np.array(oracle['means'])[:,1], 0., atol=1e-14)
-    # Exact theorem fixture, deliberately NOT learned predictions.
-    p = np.array([[.5,.5,.5,0.],[.5,.5,.5,1.]])
-    fixture = audit_predictions(p, np.arange(4))
-    assert np.isclose(fixture['pairs']['00-11']['hidden_normalized'],1.)
-    rng = np.random.default_rng(8)
-    u = uncertainty(rng.random((10,100)))
-    np.testing.assert_allclose(u[:,0]+u[:,1],u[:,2],atol=1e-14)
-    assert u[:,1].min() >= -1e-14
-    print('PASS: entropy targets, independent fixed splits, nested scarcity, oracle, cancellation, decomposition')
-
-
-# Project integration. Imports are lazy so NumPy-only generation still works.
 def get_spec():
-    """Exclude all identifiers, split labels and oracle fields from predictors."""
+    """Constructs our 'DatasetSpec', identifying protected columns, label and columns excluded from predictors.
+    Exclude all identifiers, split labels and oracle fields from predictors."""
     from modules.utils.dataset_utils import DatasetSpec
     return DatasetSpec(
         name='synthetic_uncertainty', protected_cols=('S1', 'S2'), label_col='y',
         drop_feature_cols=('split', 'row_id', 'y_clean', 'p_true', 'U_true'),
     )
 
-
 def load_dataset(*, folder=None, **generation_kwargs):
     """Return your LoadedDataset with fixed splits in metadata['split_indices'].
 
-    Use load_dataset_by_name('synthetic_uncertainty', scenario=..., seed=...).
+    Loaded through the shared dataset module registry.
     Or pass folder pointing to the original four NPZ files and metadata.json.
     Do NOT call split_df on this result: it would redistribute scarcity and put
-    reference observations into training. Use prepare_dataset below instead.
+    reference observations into training. The shared prepare_data pipeline honors these fixed indices.
     """
     import pandas as pd
     from modules.utils.dataset_utils import LoadedDataset, compute_pg_dirichlet
@@ -252,46 +237,11 @@ def load_dataset(*, folder=None, **generation_kwargs):
     # Training proportions differ from the fixed equal-group audit target.
     pg_table, pg = compute_pg_dirichlet(df.iloc[indices['train']])
     meta = dict(meta, spec=get_spec(), split_indices=indices, pg_source='train',
-                population_pg={g: .25 for g in GROUPS},
+                population_pg=meta.get('population_pg', {g: .25 for g in GROUPS}),
                 row_id_scope='within split; identify rows by (split, row_id)')
     return LoadedDataset(df=df, original_columns=list(df.columns),
                          group_id={g: i for i, g in enumerate(GROUPS)},
                          pg_table=pg_table, pg=pg, metadata=meta)
-
-
-def prepare_dataset(loaded=None, *, batch_size=128, device=None,
-                    append_protected=False, **load_kwargs):
-    """Fit your predictor schema on train; return fixed tensors and loaders.
-
-    result['tensors'][split] is (X, y, group_ids).
-    result['loaders'][split] yields (X, y); only training is shuffled.
-    result['audit_loaders'][split] yields dicts X/y/group_id in original order.
-    Reference data is only for integration of a frozen fitted predictor.
-    """
-    from modules.utils.dataset_utils import (
-        fit_predictor_schema, transform_predictor_schema,
-        to_tensor_dataset_predictive, TabularDataset, make_loader,
-    )
-    if loaded is not None and load_kwargs:
-        raise ValueError('Pass loaded OR loading arguments.')
-    if loaded is None:
-        loaded = load_dataset(**load_kwargs)
-    frames = {name: loaded.df.iloc[idx].copy()
-              for name, idx in loaded.metadata['split_indices'].items()}
-    schema = fit_predictor_schema(frames['train'], get_spec(),
-                                  append_protected=append_protected)
-    tensors, loaders, audit_loaders = {}, {}, {}
-    for name, frame in frames.items():
-        X, y, groups = transform_predictor_schema(frame, schema, device=device)
-        tensors[name] = (X, y, groups)
-        loaders[name] = make_loader(to_tensor_dataset_predictive(X, y),
-                                    batch_size, shuffle=name == 'train')
-        audit_loaders[name] = make_loader(
-            TabularDataset(X=X, y=y, group_id=groups), batch_size, shuffle=False)
-    return dict(loaded=loaded, spec=get_spec(), frames=frames,
-                predictor_schema=schema, tensors=tensors, loaders=loaders,
-                audit_loaders=audit_loaders)
-
 
 def save_prepared_dataset(prepared, folder):
     """Save raw splits plus preprocessing using your saving_utils conventions.
@@ -299,8 +249,6 @@ def save_prepared_dataset(prepared, folder):
     Reject an existing destination. Load raw data via load_dataset(folder=...).
     For exact saved preprocessing use joblib.load on the trusted local file
     preprocessing/predictor/predictor_preprocessing_schema.joblib.
-    loading_utils currently imports missing legacy dataset utility names; this
-    module therefore does not import it or depend on its legacy JSON loader.
     """
     from modules.utils.saving_utils import (
         save_all_preprocessing_artifacts, save_split_indices,
@@ -311,7 +259,7 @@ def save_prepared_dataset(prepared, folder):
     meta = {k: v for k, v in loaded.metadata.items() if k not in ('split_indices', 'spec')}
     for name, df in prepared['frames'].items():
         np.savez_compressed(folder / f'{name}.npz',
-            X=df[meta['feature_names']].to_numpy(dtype=np.float32),
+            X=df[meta['feature_names']].to_numpy(dtype=np.float64 if meta.get('generator')=='kanubala_2025_repository' else np.float32),
             y=df.y.to_numpy(), S=df[['S1', 'S2']].to_numpy(dtype=np.int8),
             group=df.group_id.to_numpy(),
             **{k: df[k].to_numpy() for k in ('row_id', 'y_clean', 'p_true', 'U_true')})
@@ -321,175 +269,3 @@ def save_prepared_dataset(prepared, folder):
     save_split_indices(idx['train'], idx['validation'], idx['audit'], folder / 'splits')
     np.save(folder / 'splits' / 'reference_idx.npy', idx['reference'])
     return folder
-
-
-def prepare_pipeline_data(config):
-    """Build the existing pipeline's PreparedData using the DGP's fixed splits.
-
-    config.dataset_kwargs controls DGP seed and sizes. config.split.seed controls
-    model seeds only; test_size/val_size/stratify are intentionally not applied.
-    Audit is the pipeline's test split. Reference never enters fitting/evaluation.
-    """
-    from torch.utils.data import TensorDataset
-    from modules.pipelines.train_predictive_pipeline import PreparedData
-    from modules.utils.dataset_utils import (
-        fit_predictor_schema, transform_predictor_schema, make_loader,
-    )
-    if config.dataset_name != 'synthetic_uncertainty':
-        raise ValueError("Set dataset_name='synthetic_uncertainty'.")
-    if config.build_px_loaders:
-        raise ValueError('This synthetic adapter does not build px loaders.')
-    loaded = load_dataset(**dict(config.dataset_kwargs))
-    spec = loaded.metadata['spec']
-    frames = {name: loaded.df.iloc[idx].copy().reset_index(drop=True)
-              for name, idx in loaded.metadata['split_indices'].items()}
-    if set(frames['train']['y'].unique()) != {0, 1}:
-        raise ValueError('Training needs both labels; increase train size or change seed.')
-    schema = fit_predictor_schema(frames['train'], spec,
-                                 append_protected=config.append_protected_to_predictor)
-    tensors, loaders = {}, {}
-    for name in ('train', 'validation', 'audit'):
-        tensors[name] = transform_predictor_schema(frames[name], schema)
-        loaders[name] = make_loader(
-            TensorDataset(*tensors[name]),
-            batch_size=(config.loader.batch_size if name == 'train'
-                        else config.loader.eval_batch_size),
-            shuffle=config.loader.shuffle_train if name == 'train' else False,
-        )
-    return PreparedData(
-        loaded=loaded, spec=spec, train_df=frames['train'],
-        val_df=frames['validation'], test_df=frames['audit'],
-        predictor_schema=schema, train_loader=loaders['train'],
-        val_loader=loaders['validation'], test_loader=loaders['audit'],
-        num_features=int(tensors['train'][0].shape[1]), num_classes=2,
-        binary=bool(config.train.binary),
-    )
-
-
-def run_synthetic_experiment(config=None, *, out=None,
-                             regularizer=None, regularizer_weight=1.0,
-                             fair_loader=None):
-    """Use your existing training/evaluation pipeline; add an uncertainty audit.
-
-    Returns dict(pipeline_result=PipelineResult, uncertainty_audit=dict,
-                 predictive_metrics=dict, group_predictive_metrics=DataFrame,
-                 output_folder=Path|None).
-    Your PipelineResult.test_metrics/group_metrics describe model 0, as in your
-    pipeline. The separate predictive_metrics below describe the MEAN predictor.
-    Deep ensembles are implemented; MC dropout and Laplace are not added here.
-    Passing dropout>0 trains with dropout; evaluate_ensemble turns it off at test.
-
-    Supply fair_loader explicitly if using a regularizer. No monkeypatching or
-    replacement of user pipeline functions is performed.
-    """
-    import pandas as pd
-    from modules.pipelines.train_predictive_pipeline import (
-        PipelineConfig, ModelConfig, PipelineResult, train_models, evaluate_models,
-    )
-    from modules.predictive.ensemble import evaluate_ensemble
-    if config is None:
-        config = PipelineConfig(
-            dataset_name='synthetic_uncertainty', dataset_kwargs={'seed': 0},
-            n_models=10, append_protected_to_predictor=False,
-            model=ModelConfig(hidden_dims=(128, 64), dropout=0.0),
-        )
-    if out is not None and Path(out).exists():
-        raise FileExistsError(f'Refusing to overwrite {out}')
-    if regularizer is not None and fair_loader is None:
-        raise ValueError('Pass an explicit fair_loader when using a regularizer.')
-    data = prepare_pipeline_data(config)
-    models, histories = train_models(
-        data, config, regularizer=regularizer,
-        regularizer_weight=regularizer_weight, fair_loader=fair_loader,
-    )
-    test_metrics, group_metrics, ensemble = evaluate_models(models, data, config)
-    # Your pipeline only evaluates ensembles when M>1; also support a single
-    # predictor as a useful zero-disagreement control.
-    if ensemble is None:
-        ensemble = evaluate_ensemble(models, data.test_loader,
-                                     binary=data.binary, device=config.device)
-    result = PipelineResult(
-        config=config, data=data, models=models, histories=histories,
-        test_metrics=test_metrics, group_metrics=group_metrics,
-        ensemble_metrics=ensemble,
-    )
-    member_p = np.asarray(ensemble['ensemble_probs'])[:, :, 1]
-    groups = data.test_df['group_id'].to_numpy(dtype=np.int64)
-    labels = data.test_df['y'].to_numpy(dtype=np.int64)
-    audit = audit_predictions(member_p, groups)
-    # Verify that the native evaluator and our audit use the same definitions.
-    u = uncertainty(member_p)
-    for col, key in enumerate(('aleatoric_uncertainty', 'epistemic_uncertainty',
-                               'predictive_entropy')):
-        np.testing.assert_allclose(u[:, col], ensemble[key], atol=2e-6, rtol=2e-5)
-    mean_p = member_p.mean(axis=0).astype(float)
-    predicted = ((mean_p >= config.train.threshold).astype(int) if data.binary
-                 else np.asarray(ensemble['predictions']))
-    clipped = np.clip(mean_p, 1e-12, 1-1e-12)
-    def quality(mask):
-        y, p, q = labels[mask], mean_p[mask], clipped[mask]
-        return dict(support=int(mask.sum()),
-                    accuracy=float(np.mean(predicted[mask] == y)),
-                    nll=float(np.mean(-y*np.log(q)-(1-y)*np.log1p(-q))),
-                    brier=float(np.mean((p-y)**2)))
-    metrics = quality(np.ones(len(labels), dtype=bool))
-    by_group = pd.DataFrame([
-        dict(group=GROUPS[g], group_id=g, **quality(groups == g)) for g in range(4)])
-    audit['oracle_entropy_nats'] = (np.array(data.loaded.metadata['oracle_entropy_bits'])*LOG2).tolist()
-    audit['alea_minus_oracle'] = (np.array(audit['means'])[:, 0]
-                                -np.array(audit['oracle_entropy_nats'])).tolist()
-    audit['data_seed'] = data.loaded.metadata['seed']
-    audit['model_seeds'] = [config.split.seed+i for i in range(config.n_models)]
-    audit['method'] = 'deep_ensemble' if len(models) > 1 else 'single_model'
-    audit['brier_convention'] = 'mean squared error of class-1 probability'
-    output = None
-    if out is not None:
-        from modules.utils.saving_utils import save_pipeline_result
-        output = save_pipeline_result(result, exact_path=out)
-        extra = output / 'synthetic_audit'
-        extra.mkdir()
-        (extra / 'uncertainty_audit.json').write_text(json.dumps(audit, indent=2)+'\n')
-        (extra / 'predictive_metrics.json').write_text(json.dumps(metrics, indent=2)+'\n')
-        by_group.to_csv(extra / 'group_predictive_metrics.csv', index=False)
-        np.savez_compressed(extra / 'audit_rows.npz',
-                            y=labels, group_id=groups,
-                            row_id=data.test_df.row_id.to_numpy(),
-                            p_true=data.test_df.p_true.to_numpy())
-        frames = {name: data.loaded.df.iloc[idx].copy()
-                  for name, idx in data.loaded.metadata['split_indices'].items()}
-        save_prepared_dataset(dict(loaded=data.loaded, frames=frames,
-                                   predictor_schema=data.predictor_schema),
-                              output / 'synthetic_data')
-    return dict(pipeline_result=result, uncertainty_audit=audit,
-                predictive_metrics=metrics, group_predictive_metrics=by_group,
-                output_folder=output)
-
-
-def main():
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument('--scenario', choices=['baseline','scarcity','noise','additive','interaction','cancellation'], default='baseline')
-    p.add_argument('--seed', type=int, default=0)
-    p.add_argument('--rho', type=float, default=1.)
-    p.add_argument('--eta', type=float, default=.2)
-    p.add_argument('--strength', type=float, default=.15)
-    p.add_argument('--train', type=int, default=2000, help='Base observations PER GROUP')
-    p.add_argument('--validation', type=int, default=500)
-    p.add_argument('--audit', type=int, default=5000)
-    p.add_argument('--reference', type=int, default=25000)
-    p.add_argument('--out', type=Path, default=Path('synthetic_data'))
-    p.add_argument('--self-test', action='store_true')
-    args = vars(p.parse_args())
-    if args.pop('self_test'):
-        self_test()
-        return
-    out = args.pop('out')
-    splits, meta = generate(**args)
-    out.mkdir(parents=True, exist_ok=False)
-    for name, data in splits.items():
-        np.savez_compressed(out/f'{name}.npz', **data)
-    (out/'metadata.json').write_text(json.dumps(meta, indent=2)+'\n')
-    print(json.dumps(meta, indent=2))
-
-
-if __name__ == '__main__':
-    main()
