@@ -12,7 +12,7 @@ from modules.pipelines.experiment_pipeline import run_experiment
 from modules.predictive.trainer import TrainConfig
 from modules.utils.checkpoint_utils import load_ensemble
 from modules.predictive.ensemble import evaluate_ensemble
-from modules.data.synthetic_uncertainty import generate
+from Projects.InterFairPytorch.modules.data.synthetic_data import generate
 
 
 class SharedTests(unittest.TestCase):

@@ -25,9 +25,9 @@ def main():
         if args.seed not in seeds:
             parser.error('--seed must occur in data_seeds')
         seeds = [args.seed]
-    synthetic = cfg['dataset']['name'] == 'synthetic_uncertainty'
+    synthetic = cfg['dataset']['name'] == 'synthetic_data'
     if args.generate_only and not synthetic:
-        parser.error('--generate-only applies to synthetic_uncertainty')
+        parser.error('--generate-only applies to synthetic_data')
     jobs = []
     for name, overrides in conditions.items():
         for seed in seeds:
@@ -46,7 +46,7 @@ def main():
     for name, seed, model_seed, kwargs, dest in jobs:
         if args.generate_only:
             import numpy as np
-            from modules.data.synthetic_uncertainty import generate
+            from Projects.InterFairPytorch.modules.data.synthetic_data import generate
             splits, meta = generate(**kwargs)
             dest.mkdir(parents=True)
             for split, values in splits.items():

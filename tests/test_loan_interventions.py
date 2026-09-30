@@ -2,9 +2,9 @@
 import unittest
 from copy import deepcopy
 import numpy as np
-from modules.data.loan_data import generate_loan_splits, SCENARIOS
-from modules.data.synthetic_uncertainty import generate
-from modules.data.uncertainty_conditions import apply_uncertainty, h, stripe_region_mask
+from Projects.InterFairPytorch.modules.data.synthetic_generators.loan_data import generate_loan_splits, SCENARIOS
+from Projects.InterFairPytorch.modules.data.synthetic_data import generate
+from Projects.InterFairPytorch.modules.data.synthetic_generators.uncertainty_conditions import apply_uncertainty, h, stripe_region_mask
 
 SIZES=dict(train=600,validation=200,audit=400,reference=400)
 
@@ -113,7 +113,7 @@ class LoanInterventionTests(unittest.TestCase):
         from modules.pipelines.experiment_config import read_config,pipeline_config,ROOT
         from modules.pipelines.experiment_pipeline import run_experiment
         from modules.reporting.synthetic_report import load_results,stripe_region_report
-        from modules.data.synthetic_uncertainty import load_dataset
+        from Projects.InterFairPytorch.modules.data.synthetic_data import load_dataset
         cfg,_=read_config(ROOT/'configs/synthetic/smoke.yaml')
         kwargs=dict(cfg['dataset']['kwargs'],seed=0,uncertainty={'kind':'stripe','rho':.5,'validation':False})
         with tempfile.TemporaryDirectory() as tmp:

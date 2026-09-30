@@ -53,6 +53,7 @@ def scenario_config(scenario='no_bias', *, seed=42, sample_size=10000, overrides
             raise ValueError(f'{key} must be finite.')
     if not 0 < cfg['prob_gender'] < 1 or not 0 < cfg['prob_race'] < 1 or cfg['eta'] < 0:
         raise ValueError('Both group probabilities must be in (0,1); eta must be nonnegative.')
+    # Discrimation variables
     for key in ('thetas', 'beta_coef', 'rhos', 'kappas', 'nus', 'lambdas'):
         if not all(isinstance(v, (int, float)) and np.isfinite(v) for v in cfg[key].values()):
             raise ValueError(f'{key} values must be finite numbers.')

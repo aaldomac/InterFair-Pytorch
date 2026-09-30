@@ -7,8 +7,8 @@ import json
 import warnings
 from pathlib import Path
 import numpy as np
-from modules.data.loan_data import GROUPS, generate_loan_splits
-from modules.data.uncertainty_conditions import (
+from Projects.InterFairPytorch.modules.data.synthetic_generators.loan_data import GROUPS, generate_loan_splits
+from Projects.InterFairPytorch.modules.data.synthetic_generators.uncertainty_conditions import (
     LOG2, h, inverse_h_bits, parameters, apply_uncertainty,
 )
 
@@ -49,7 +49,7 @@ def get_spec():
     Exclude all identifiers, split labels and oracle fields from predictors."""
     from modules.utils.dataset_utils import DatasetSpec
     return DatasetSpec(
-        name='synthetic_uncertainty', protected_cols=('S1', 'S2'), label_col='y',
+        name='synthetic_data', protected_cols=('S1', 'S2'), label_col='y',
         drop_feature_cols=('split', 'row_id', 'y_clean', 'p_true', 'U_true'),
     )
 

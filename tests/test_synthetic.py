@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 import numpy as np
-from modules.data.synthetic_uncertainty import generate, parameters, h, LOG2
+from Projects.InterFairPytorch.modules.data.synthetic_data import generate, parameters, h, LOG2
 from modules.metrics.uncertainty_audit import audit_uncertainties
 
 
@@ -39,7 +39,7 @@ class IntegrationTests(unittest.TestCase):
     def test_train_save_reload(self):
         from modules.pipelines.experiment_config import read_config, pipeline_config, ROOT
         from modules.pipelines.experiment_pipeline import run_experiment
-        from modules.data.synthetic_uncertainty import load_dataset
+        from Projects.InterFairPytorch.modules.data.synthetic_data import load_dataset
         cfg, _ = read_config(ROOT/'configs'/'synthetic'/'smoke.yaml')
         config = pipeline_config(cfg, dict(cfg['dataset']['kwargs'], uncertainty={'kind':'scarcity','rho':.25}, seed=0),1000)
         with tempfile.TemporaryDirectory() as tmp:

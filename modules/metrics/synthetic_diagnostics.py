@@ -1,5 +1,5 @@
 import numpy as np
-from modules.data.synthetic_uncertainty import GROUPS, LOG2
+from Projects.InterFairPytorch.modules.data.synthetic_data import GROUPS, LOG2
 
 def audit_stripe_regions(ensemble, groups, X, S, metadata):
     """Descriptive regional means; empty regions use null, never zero.
@@ -7,7 +7,7 @@ def audit_stripe_regions(ensemble, groups, X, S, metadata):
     Each condition's region follows its own width; compare group-wide metrics
     on the fixed audit population when comparing different stripe widths.
     """
-    from modules.data.uncertainty_conditions import stripe_region_mask
+    from Projects.InterFairPytorch.modules.data.synthetic_generators.uncertainty_conditions import stripe_region_mask
     if 'stripe' not in metadata:
         return []
     info = metadata['stripe']
