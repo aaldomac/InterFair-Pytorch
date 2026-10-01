@@ -5,7 +5,7 @@ All random streams are independent of the base generator and paired across condi
 """
 from copy import deepcopy
 import numpy as np
-from Projects.InterFairPytorch.modules.data.synthetic_generators.loan_data import GROUPS, FEATURES
+from modules.data.synthetic_generators.loan_data import GROUPS, FEATURES
 
 LOG2 = float(np.log(2.0))
 

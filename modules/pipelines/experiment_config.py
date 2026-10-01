@@ -59,8 +59,8 @@ def read_config(path):
             raise ValueError(f'Invalid condition: {name}')
         if 'seed' in overrides or 'seed' in dataset['kwargs']:
             raise ValueError('Use data_seeds rather than seed in dataset kwargs')
-        if dataset['name'] == 'synthetic_uncertainty':
-            from Projects.InterFairPytorch.modules.data.synthetic_data import generate
+        if dataset['name'] == 'synthetic_data':
+            from modules.data.synthetic_data import generate
             generate(**dict(dataset['kwargs'], **overrides), seed=seeds[0])
     audit = cfg.setdefault('audit',{})
     if not isinstance(audit,dict) or set(audit)-{'enabled','alpha','interaction_weights','fairness','distribution'}:

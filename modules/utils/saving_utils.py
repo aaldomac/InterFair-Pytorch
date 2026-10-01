@@ -703,7 +703,7 @@ def save_audited_result(result, out, audit, predictive_metrics, group_metrics, a
     save_split_indices(data.train_df.index.to_numpy(), data.val_df.index.to_numpy(),
                        data.test_df.index.to_numpy(), output / 'splits')
     if 'oracle_entropy_bits' in data.loaded.metadata:
-        from Projects.InterFairPytorch.modules.data.synthetic_data import save_prepared_dataset
+        from modules.data.synthetic_data import save_prepared_dataset
         frames = {name:data.loaded.df.iloc[idx].copy()
                   for name,idx in data.loaded.metadata['split_indices'].items()}
         save_prepared_dataset(dict(loaded=data.loaded, frames=frames,

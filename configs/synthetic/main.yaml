@@ -129,7 +129,7 @@ pipeline:
     restore_best: true
     verbose: true
 dataset:
-  name: synthetic_uncertainty
+  name: synthetic_data
   kwargs:
     train: 8000
     validation: 2000

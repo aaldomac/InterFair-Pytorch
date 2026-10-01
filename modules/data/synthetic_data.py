@@ -7,8 +7,8 @@ import json
 import warnings
 from pathlib import Path
 import numpy as np
-from Projects.InterFairPytorch.modules.data.synthetic_generators.loan_data import GROUPS, generate_loan_splits
-from Projects.InterFairPytorch.modules.data.synthetic_generators.uncertainty_conditions import (
+from modules.data.synthetic_generators.loan_data import GROUPS, generate_loan_splits
+from modules.data.synthetic_generators.uncertainty_conditions import (
     LOG2, h, inverse_h_bits, parameters, apply_uncertainty,
 )
 

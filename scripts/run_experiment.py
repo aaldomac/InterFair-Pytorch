@@ -46,7 +46,7 @@ def main():
     for name, seed, model_seed, kwargs, dest in jobs:
         if args.generate_only:
             import numpy as np
-            from Projects.InterFairPytorch.modules.data.synthetic_data import generate
+            from modules.data.synthetic_data import generate
             splits, meta = generate(**kwargs)
             dest.mkdir(parents=True)
             for split, values in splits.items():
