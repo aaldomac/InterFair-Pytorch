@@ -58,6 +58,7 @@ def main():
             result = run_experiment(config,out=dest,audit_config=cfg['audit'])
             row = dict(condition=name, data_seed=seed, model_seed_start=model_seed,
                        **result['predictive_metrics'])
+            row.update(result['additional_metrics'].get('classical_summary', {}))
             audit = result['uncertainty_audit']
             if audit is not None:
                 row.update(audit['maxima'], F_U_int=audit['F_U_int'])

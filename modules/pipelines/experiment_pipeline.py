@@ -42,10 +42,13 @@ def run_experiment(config, *, out=None, audit_config=None, regularizer=None,
             brier_convention='class-1 squared error' if data.num_classes == 2 else 'sum of classwise squared errors')
     additional = {}
     if options.get('fairness', False):
-        from modules.metrics.fairness_metrics import evaluate_ensemble_fairness_from_loader
+        from modules.metrics.fairness_metrics import evaluate_ensemble_fairness_from_loader, performance_fairness, classical_fairness_summary
         additional['fairness'] = evaluate_ensemble_fairness_from_loader(
             ensemble, data.test_loader, binary=data.binary, threshold=config.train.threshold,
             positive_class=1, alpha=1.)
+        performance = performance_fairness(ensemble, labels, groups, binary=data.binary, threshold=config.train.threshold, positive_class=1, alpha=1.)
+        additional['performance_fairness'] = performance
+        additional['classical_summary'] = classical_fairness_summary(additional['fairness'], performance)
     if options.get('distribution', False):
         from modules.metrics.distribution_decomposition_metrics import group_distribution_analysis_from_ensemble_outputs
         additional['distribution'] = group_distribution_analysis_from_ensemble_outputs(ensemble, group_ids=groups)
