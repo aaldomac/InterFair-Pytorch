@@ -1,0 +1,19 @@
+output: experiments/adult
+model_seed_base: 1000
+data_seeds: [0, 1, 2]
+dataset:
+  name: adult
+  kwargs: {drop_na: true}
+conditions:
+  baseline: {}
+pipeline:
+  n_models: 5
+  append_protected_to_predictor: false
+  split: {test_size: 0.25, val_size: 0.15}
+  model: {hidden_dims: [128, 64], dropout: 0.0}
+  train: {epochs: 50, patience: 5, binary: true}
+audit:
+  enabled: true
+  alpha: 0.05
+  fairness: true
+  distribution: true

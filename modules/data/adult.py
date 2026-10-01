@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-import kagglehub
 import pandas as pd
 
 
@@ -27,7 +26,7 @@ ADULT_SPEC = DatasetSpec(
 # -------------------------------------------------------------
 # LOAD DATASETS AND PREPROCESSING
 # -------------------------------------------------------------
-def load_raw_adult(drop_na: bool = True) -> Tuple[pd.DataFrame, List[str]]:
+def load_raw_adult(drop_na: bool = True, csv_path=None) -> Tuple[pd.DataFrame, List[str]]:
     """
     Load the Adult Income dataset from Kaggle.
 
@@ -38,9 +37,12 @@ def load_raw_adult(drop_na: bool = True) -> Tuple[pd.DataFrame, List[str]]:
         df: Loaded DataFrame.
         original_columns: Original column names before preprocessing.
     """
-    dataset_path = kagglehub.dataset_download("wenruliu/adult-income-dataset")
-    print("Path to dataset files:", dataset_path)
-    csv_file = os.path.join(dataset_path, "adult.csv")
+    if csv_path is None:
+        import kagglehub
+        dataset_path = kagglehub.dataset_download("wenruliu/adult-income-dataset")
+        csv_file = os.path.join(dataset_path, "adult.csv")
+    else:
+        csv_file = csv_path
 
     df = pd.read_csv(csv_file, na_values="?")
     if drop_na:
@@ -110,6 +112,7 @@ def preprocess_adult(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, int]]:
 def load_dataset(
         *, 
         drop_na: bool = True,
+        csv_path=None,
         compute_pg: bool = True,
         pg_alpha: float = 1.0,
         pg_num_draws: int = 20000,
@@ -119,7 +122,7 @@ def load_dataset(
     """
     Standard Adult loader used by `load_dataset_by_name("adult")`.
     """
-    df, original_columns = load_raw_adult(drop_na=drop_na)
+    df, original_columns = load_raw_adult(drop_na=drop_na, csv_path=csv_path)
     df, group_id = preprocess_adult(df)
 
     pg_table = None

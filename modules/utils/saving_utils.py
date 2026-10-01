@@ -682,3 +682,30 @@ def save_pipeline_result(
         model_metadata=model_metadata,
         data_info=data_info,
     )
+
+
+def save_audited_result(result, out, audit, predictive_metrics, group_metrics, additional):
+    """Save shared artifacts and optional synthetic oracle data through one writer."""
+    output = save_pipeline_result(result, exact_path=out)
+    folder = output / 'audit'
+    folder.mkdir()
+    if audit is not None:
+        _json_dump(audit, folder / 'uncertainty_audit.json')
+    _json_dump(predictive_metrics, folder / 'predictive_metrics.json')
+    group_metrics.to_csv(folder / 'group_predictive_metrics.csv', index=False)
+    for name, value in additional.items():
+        _json_dump(value, folder / f'{name}.json')
+    data = result.data
+    np.savez_compressed(folder / 'audit_rows.npz',
+        y=data.test_df[data.spec.label_col].to_numpy(),
+        group_id=data.test_df[data.spec.group_id_col].to_numpy(),
+        source_index=data.test_df.index.to_numpy())
+    save_split_indices(data.train_df.index.to_numpy(), data.val_df.index.to_numpy(),
+                       data.test_df.index.to_numpy(), output / 'splits')
+    if 'oracle_entropy_bits' in data.loaded.metadata:
+        from modules.data.synthetic_uncertainty import save_prepared_dataset
+        frames = {name:data.loaded.df.iloc[idx].copy()
+                  for name,idx in data.loaded.metadata['split_indices'].items()}
+        save_prepared_dataset(dict(loaded=data.loaded, frames=frames,
+            predictor_schema=data.predictor_schema), output / 'synthetic_data')
+    return output

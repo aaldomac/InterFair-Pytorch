@@ -1,0 +1,148 @@
+# All sizes are TOTAL rows before intervention. Base generator: Kanubala.
+output: experiments/loan_uncertainty_main
+model_seed_base: 1000
+data_seeds:
+- 0
+- 1
+- 2
+- 3
+- 4
+conditions:
+  baseline:
+    uncertainty:
+      kind: baseline
+      baseline_noise: 0.05
+  scarcity_050:
+    uncertainty:
+      kind: scarcity
+      rho: 0.5
+      baseline_noise: 0.05
+  scarcity_025:
+    uncertainty:
+      kind: scarcity
+      rho: 0.25
+      baseline_noise: 0.05
+  scarcity_0125:
+    uncertainty:
+      kind: scarcity
+      rho: 0.125
+      baseline_noise: 0.05
+  noise_010:
+    uncertainty:
+      kind: noise
+      eta: 0.1
+      baseline_noise: 0.05
+  noise_020:
+    uncertainty:
+      kind: noise
+      eta: 0.2
+      baseline_noise: 0.05
+  noise_030:
+    uncertainty:
+      kind: noise
+      eta: 0.3
+      baseline_noise: 0.05
+  additive_000:
+    uncertainty:
+      kind: additive
+      strength: 0.0
+      entropy_base: 0.3
+  additive_010:
+    uncertainty:
+      kind: additive
+      strength: 0.1
+      entropy_base: 0.3
+  additive_020:
+    uncertainty:
+      kind: additive
+      strength: 0.2
+      entropy_base: 0.3
+  additive_030:
+    uncertainty:
+      kind: additive
+      strength: 0.3
+      entropy_base: 0.3
+  interaction_000:
+    uncertainty:
+      kind: interaction
+      strength: 0.0
+      entropy_base: 0.3
+  interaction_010:
+    uncertainty:
+      kind: interaction
+      strength: 0.1
+      entropy_base: 0.3
+  interaction_020:
+    uncertainty:
+      kind: interaction
+      strength: 0.2
+      entropy_base: 0.3
+  interaction_030:
+    uncertainty:
+      kind: interaction
+      strength: 0.3
+      entropy_base: 0.3
+  cancellation:
+    uncertainty:
+      kind: cancellation
+      eta: 0.3
+      rho: 0.125
+      baseline_noise: 0.05
+  stripe_r025:
+    uncertainty:
+      kind: stripe
+      rho: 0.25
+      slope: -0.5
+      baseline_noise: 0.05
+  stripe_r050:
+    uncertainty:
+      kind: stripe
+      rho: 0.5
+      slope: -0.5
+      baseline_noise: 0.05
+  stripe_r075:
+    uncertainty:
+      kind: stripe
+      rho: 0.75
+      slope: -0.5
+      baseline_noise: 0.05
+pipeline:
+  n_models: 5
+  append_protected_to_predictor: false
+  device: null
+  model:
+    hidden_dims:
+    - 128
+    - 64
+    dropout: 0.0
+  optimizer:
+    lr: 0.001
+    weight_decay: 0.0001
+  loader:
+    batch_size: 128
+    eval_batch_size: 512
+    shuffle_train: true
+  train:
+    epochs: 300
+    patience: 30
+    binary: true
+    restore_best: true
+    verbose: true
+dataset:
+  name: synthetic_uncertainty
+  kwargs:
+    train: 8000
+    validation: 2000
+    audit: 20000
+    reference: 100000
+    scenario: loan_no_bias
+audit:
+  enabled: true
+  alpha: 0.05
+  interaction_weights:
+    '0': 1
+    '1': -1
+    '2': -1
+    '3': 1
+  fairness: true
+  distribution: true

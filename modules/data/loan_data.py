@@ -22,7 +22,7 @@ GROUPS = ['00', '01', '10', '11']
 
 def scenario_config(scenario='no_bias', *, seed=42, sample_size=10000, overrides=None):
     """Load the complete upstream preset; allow explicit, recorded code extensions.
-    
+
     Coefficient dictionaries are patched by key. Overrides cannot silently
     change sample_size/random_seed, which are controlled by the explicit arguments.
     """

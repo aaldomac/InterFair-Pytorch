@@ -1,0 +1,69 @@
+# Integration check, not a scientific result. All sizes are TOTAL rows.
+output: experiments/loan_uncertainty_smoke
+model_seed_base: 1000
+data_seeds:
+- 0
+conditions:
+  baseline:
+    uncertainty:
+      kind: baseline
+      baseline_noise: 0.05
+  scarcity:
+    uncertainty:
+      kind: scarcity
+      rho: 0.25
+      baseline_noise: 0.05
+  noise:
+    uncertainty:
+      kind: noise
+      eta: 0.3
+  cancellation:
+    uncertainty:
+      kind: cancellation
+      eta: 0.3
+      rho: 0.25
+  stripe:
+    uncertainty:
+      kind: stripe
+      rho: 0.5
+      validation: false
+pipeline:
+  n_models: 2
+  append_protected_to_predictor: false
+  device: cpu
+  model:
+    hidden_dims:
+    - 16
+    - 8
+    dropout: 0.0
+  optimizer:
+    lr: 0.001
+    weight_decay: 0.0001
+  loader:
+    batch_size: 32
+    eval_batch_size: 64
+    shuffle_train: true
+  train:
+    epochs: 2
+    patience: 2
+    binary: true
+    restore_best: true
+    verbose: false
+dataset:
+  name: synthetic_uncertainty
+  kwargs:
+    train: 160
+    validation: 64
+    audit: 96
+    reference: 96
+    scenario: loan_no_bias
+audit:
+  enabled: true
+  alpha: 0.05
+  interaction_weights:
+    '0': 1
+    '1': -1
+    '2': -1
+    '3': 1
+  fairness: true
+  distribution: true

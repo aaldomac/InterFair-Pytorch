@@ -3,7 +3,6 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
 from dataclasses import dataclass
 
-import kagglehub
 import numpy as np
 import pandas as pd
 import torch
@@ -21,25 +20,6 @@ from modules.utils.tensor_utils import (
     ArrayLike,
     DeviceLike,
     _as_tensor,
-)
-
-from modules.utils.dataset_utils import (
-    _validate_dataframe,
-    _validate_columns_exist,
-    _infer_cat_and_cont_cols,
-    to_tensor_dataset_ar,
-    to_tensor_dataset_flow,
-    to_tensor_dataset_predictive,
-    make_loader,
-    split_df,
-    split_df_with_indices,
-    fit_schema_px,
-    transform_px,
-    fit_predictor_schema,
-    transform_predictor,
-    TabularDataset,
-    compute_pg_dirichlet,
-    compute_pg_dirichlet_from_groups
 )
 
 # ============================================================
@@ -205,7 +185,7 @@ class CelebAAttributeDataset(Dataset):
         ]
         if normalize:
             transform_list.append(
-                transofrms.Normalize(
+                transforms.Normalize(
                     mean=[0.5, 0.5, 0.5],
                     std=[0.5, 0.5, 0.5]
                 )
@@ -222,8 +202,10 @@ class CelebAAttributeDataset(Dataset):
         )
 
         #base.attr is shape [N, 40] in {-1, +1}
-        attrs_pm1 = self.base.attr
-        self.target_ids = CELEBA_ATTR_TO_IDX[self.target_attr]
+        self.attrs_01 = self.base.attr.long()
+        if (self.attrs_01 < 0).any():
+            self.attrs_01 = (self.attrs_01 + 1) // 2
+        self.target_idx = CELEBA_ATTR_TO_IDX[self.target_attr]
         self.group_attr_indices = [CELEBA_ATTR_TO_IDX[attr] for attr in self.group_attrs]
 
         self.labels = self.attrs_01[:, self.target_idx].long()

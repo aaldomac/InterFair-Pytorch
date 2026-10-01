@@ -1,8 +1,8 @@
 """Display saved synthetic audits and export CSV/LaTeX tables. No PyTorch needed.
 
 From project root:
-  python -m experiments.synthetic.report experiments/synthetic/results/pilot
-  python -m experiments.synthetic.report experiments/synthetic/results/pilot --pairs
+  python -m scripts.report experiments/pilot
+  python -m scripts.report experiments/pilot --pairs
 
 Requires NumPy and pandas. Reads completed runs directly, not summarize.py output.
 Exports derived reports only; never edits models, audits or original summaries.
@@ -48,8 +48,8 @@ def load_results(folder, conditions=None):
             skipped.append(str(path))
             continue
         try:
-            audit = read_json(path/'synthetic_audit'/'uncertainty_audit.json')
-            quality = read_json(path/'synthetic_audit'/'predictive_metrics.json')
+            audit = read_json(path/('audit' if (path/'audit').exists() else 'synthetic_audit')/'uncertainty_audit.json')
+            quality = read_json(path/('audit' if (path/'audit').exists() else 'synthetic_audit')/'predictive_metrics.json')
             meta = read_json(path/'synthetic_data'/'metadata.json')
             seed = int(path.name.removeprefix('seed_'))
             if seed != audit['data_seed'] or seed != meta['seed']:
@@ -78,7 +78,7 @@ def load_results(folder, conditions=None):
                 row['I_'+c] = interaction[i]
             row['I_oracle'] = meta['oracle_interaction_bits']*np.log(2.)
             finite([row[k] for k in QUALITY+DISPARITY+['I_alea','I_epis','I_tot','I_oracle']], 'metrics')
-            group_quality = pd.read_csv(path/'synthetic_audit'/'group_predictive_metrics.csv')
+            group_quality = pd.read_csv(path/('audit' if (path/'audit').exists() else 'synthetic_audit')/'group_predictive_metrics.csv')
             if set(group_quality.group_id) != set(range(4)) or len(group_quality) != 4:
                 raise ValueError('Invalid group quality IDs')
             group_quality = group_quality.set_index('group_id')
@@ -102,6 +102,9 @@ def load_results(folder, conditions=None):
                 values = {k:metrics[k] for k in DISPARITY if k != 'F_U_int'}
                 finite(list(values.values()), 'pair metrics')
                 local_pairs.append(dict(condition=condition, seed=seed, pair=pair, **values))
+            classical_path = path/'audit/classical_summary.json'
+            if classical_path.exists():
+                row.update(read_json(classical_path))
             runs.append(row)
             groups.extend(local_groups)
             pairs.extend(local_pairs)
@@ -109,7 +112,6 @@ def load_results(folder, conditions=None):
             raise ValueError(f'Cannot report completed run {path}: {exc}') from exc
     if conditions and set(conditions)-found:
         raise ValueError(f'Conditions not found: {sorted(set(conditions)-found)}')
-    print(f"Runs in report: {runs}")
     if not runs:
         raise ValueError('No completed runs found under folder/runs/<condition>/seed_*')
     return pd.DataFrame(runs), pd.DataFrame(groups), pd.DataFrame(pairs), skipped
@@ -124,6 +126,7 @@ def aggregate(frame, keys, metrics):
         row=dict(zip(keys,identity))
         row['runs']=len(part)
         for metric in metrics:
+            row[metric+'_n']=int(part[metric].notna().sum())
             row[metric+'_mean']=part[metric].mean()
             row[metric+'_std']=part[metric].std(ddof=1)
         rows.append(row)
@@ -172,6 +175,10 @@ def build_report(runs, groups, pairs, digits=4, show_pairs=False):
            ('group_uncertainty',groups,['condition','group'],['alea','epis','tot']),
            ('group_quality',groups,['condition','group'],QUALITY),
            ('oracle',groups,['condition','group'],['oracle_alea','alea_error'])]
+    classical = [c for c in runs.columns if c in ('DF_epsilon','SP_gap','DI_ratio','EO_gap','EOdds_gap','SSP_gap')
+                 or c.endswith(('_epsilon','_max_ratio')) or c in ('TPR_gap','FPR_gap','TNR_gap','PPV_gap','Accuracy_gap','Selection_gap')]
+    if classical:
+        specs.append(('classical',runs,['condition'],classical))
     if show_pairs:
         specs.append(('pairs',pairs,['condition','pair'],DISPARITY[:-1]))
     for name,frame,keys,metrics in specs:
@@ -198,7 +205,9 @@ Seeds change both generated data and training; the SD includes both sources of v
 Group order: 00, 01, 10, 11. Audit counts and Hoeffding radii remain in groups.csv.
 Hoeffding radii apply to aleatoric/epistemic group means conditional on a fitted ensemble;
 they are not the between-run SD and are not averaged into confidence intervals here.
-No outcome-fairness baselines or bootstrap intervals are computed by this reporter.
+Classical scores are included when saved. Rate epsilons use smoothed log-ratios; DF includes both outcomes.
+Undefined rates remain missing; consult classical_report/classical_stats.csv for valid-run counts.
+No bootstrap intervals are computed by this reporter.
 Only existing completed runs are counted; unstarted runs cannot be inferred from directories.
 Use the same experimental settings across seeds within each condition.
 LaTeX tables require \\usepackage{booktabs}; CSV files preserve unrounded numeric values.'''
@@ -214,13 +223,13 @@ def stripe_region_report(folder, conditions=None, digits=4):
         condition = path.parent.name
         if conditions and condition not in conditions:
             continue
-        audit = read_json(path/'synthetic_audit'/'uncertainty_audit.json')
+        audit = read_json(path/('audit' if (path/'audit').exists() else 'synthetic_audit')/'uncertainty_audit.json')
         for region in audit.get('stripe_regions', []):
-            rows.append(dict(condition=condition, seed=audit['audit_seed'], **region))
+            rows.append(dict(condition=condition, seed=audit['data_seed'], **region))
     if not rows:
         return '', {}
     frame = pd.DataFrame(rows)
-    exports = {'stripe_regionscsv': frame.to_csv(index=False)}
+    exports = {'stripe_regions.csv': frame.to_csv(index=False)}
     # Exclude empty regions explicitly: runs counts nonempty run-level estimates.
     valid = frame[frame.support > 0]
     keys = ['condition', 'group', 'region']
@@ -233,11 +242,11 @@ def stripe_region_report(folder, conditions=None, digits=4):
             + display.to_string(index=False)
             + '\nRegion boundaries vary with the condition width. Empty regions are '
               'omitted from this table; supports for every run are in stripe_regions.csv.\n')
-    return text, exports 
+    return text, exports
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__,formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('folder',type=Path,help='Experiment root, e.g. experiments/synthetic/results/pilot')
+    parser.add_argument('folder',type=Path,help='Experiment root, e.g. experiments/pilot')
     parser.add_argument('--condition',action='append',help='Filter condition (repeatable)')
     parser.add_argument('--digits',type=int,default=4,help='Display/LaTeX decimal places, default 4')
     parser.add_argument('--pairs',action='store_true',help='Also display/export LaTeX for all pairwise comparisons')
@@ -267,6 +276,10 @@ def main():
             exports['report.txt']=report
             for name,content in exports.items():
                 (out/name).write_text(content,encoding='utf-8')
+            if 'DF_epsilon' in runs:
+                from modules.reporting.classical_report import render_report
+                classical_out = (out/'classical') if args.out else args.folder/'classical_report'
+                render_report(args.folder, out=classical_out, conditions=args.condition)
             print(f'Reports saved to {out.resolve()} (derived files replaced on rerun).')
     except (ValueError,OSError,KeyError) as exc:
         parser.exit(1,f'Error: {exc}\n')
