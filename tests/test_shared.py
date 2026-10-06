@@ -12,7 +12,7 @@ from modules.pipelines.experiment_pipeline import run_experiment
 from modules.predictive.trainer import TrainConfig
 from modules.utils.checkpoint_utils import load_ensemble
 from modules.predictive.ensemble import evaluate_ensemble
-from Projects.InterFairPytorch.modules.data.synthetic_data import generate
+from modules.data.synthetic_data import generate
 
 
 class SharedTests(unittest.TestCase):
@@ -37,7 +37,7 @@ class SharedTests(unittest.TestCase):
         np.testing.assert_allclose(a['hoeffding_component_radii'],l*np.sqrt(np.log(16/.05)/2))
 
     def test_fixed_splits_exclude_oracles_and_reference(self):
-        c=PipelineConfig(dataset_name='synthetic_uncertainty',dataset_kwargs=dict(train=80,validation=40,audit=48,reference=56),append_protected_to_predictor=False)
+        c=PipelineConfig(dataset_name='synthetic_data',dataset_kwargs=dict(train=80,validation=40,audit=48,reference=56),append_protected_to_predictor=False)
         d=prepare_data(c)
         self.assertEqual((len(d.train_df),len(d.val_df),len(d.test_df)),(80,40,48))
         self.assertEqual(d.num_features,7)

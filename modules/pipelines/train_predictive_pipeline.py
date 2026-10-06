@@ -42,6 +42,7 @@ class SplitConfig:
     val_size: float = 0.15
     seed: int = 42
     stratify: Optional[str] = None
+    rare_group_policy: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -213,7 +214,7 @@ def prepare_data(config: PipelineConfig) -> PreparedData:
         train_df, val_df, test_df = split_df(
             loaded.df, test_size=config.split.test_size,
             val_size=config.split.val_size, seed=config.split.seed,
-            stratify=stratify_col,
+            stratify=stratify_col, rare_group_policy=config.split.rare_group_policy,
         )
     loaded.pg_table, loaded.pg = compute_pg_dirichlet(train_df)
 

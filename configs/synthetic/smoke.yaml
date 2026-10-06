@@ -50,7 +50,7 @@ pipeline:
     restore_best: true
     verbose: false
 dataset:
-  name: synthetic_uncertainty
+  name: synthetic_data
   kwargs:
     train: 160
     validation: 64

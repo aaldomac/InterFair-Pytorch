@@ -44,6 +44,7 @@ def main():
         if dest.exists():
             raise FileExistsError(f'{dest} exists; choose a new output in YAML')
     for name, seed, model_seed, kwargs, dest in jobs:
+        # GENERATE ONLY
         if args.generate_only:
             import numpy as np
             from modules.data.synthetic_data import generate
@@ -52,6 +53,7 @@ def main():
             for split, values in splits.items():
                 np.savez_compressed(dest/f'{split}.npz',**values)
             (dest/'metadata.json').write_text(json.dumps(meta,indent=2)+'\n')
+        # RUN EXPERIMENT WITH DATA
         else:
             from modules.pipelines.experiment_pipeline import run_experiment
             config = pipeline_config(cfg, kwargs, model_seed, data_seed=seed)

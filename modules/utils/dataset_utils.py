@@ -121,7 +121,7 @@ def _infer_cat_and_cont_cols(
     cont_cols = []
 
     for col in feature_cols:
-        if pd.api.types.is_object_dtype(df[col]) or isinstance(df[col].dtype, pd.CategoricalDtype):
+        if pd.api.types.is_object_dtype(df[col]) or pd.api.types.is_string_dtype(df[col].dtype) or isinstance(df[col].dtype, pd.CategoricalDtype):
             cat_cols.append(col)
         else:
             cont_cols.append(col)
@@ -214,6 +214,7 @@ def split_df(
     test_size: float=0.25, 
     val_size: float=0.15, 
     seed: int=42, 
+    rare_group_policy: Optional[str] = None,
     stratify: str="group"
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
@@ -225,6 +226,30 @@ def split_df(
     _validate_dataframe(df)
     _validate_columns_exist(df, [stratify])
 
+    if rare_group_policy not in (None, 'train_only'):
+        raise ValueError('rare_group_policy must be null or train_only')
+    if rare_group_policy == 'train_only':
+        if not 0 < test_size < 1 or not 0 < val_size < 1:
+            raise ValueError('Split fractions must be in (0,1)')
+        # Per-group allocation guarantees row per split where n>=3.
+        # Groups with 1-2 rows stay in training; their absence is reported.
+        rng = np.random.default_rng(seed)
+        positions = [[], [], []]
+        for _, group in df.groupby(stratify, observed=True, sort=True):
+            ids = rng.permutation(group.index.to_numpy())
+            n = len(ids)
+            if n < 3:
+                positions[0].extend(ids)
+                continue
+            nt = min(n-2, max(1, int(round(n*test_size))))
+            nv = min(n-nt-1, max(1, int(round((n-nt)*val_size))))
+            positions[2].extend(ids[:nt])
+            positions[1].extend(ids[nt:nt+nv])
+            positions[0].extend(ids[nt+nv:])
+        if any(not ids for ids in positions):
+            raise ValueError('Not enough observations to create nonempty train/validation/test sets')
+        return tuple(df.loc[rng.permutation(ids)].copy() for ids in positions)
+    
     df_train, df_test = train_test_split(
         df,
         test_size=test_size,
@@ -238,9 +263,9 @@ def split_df(
         stratify=df_train[stratify],
     )
 
-    df_train = df_train.reset_index(drop=True)
-    df_val = df_val.reset_index(drop=True)
-    df_test = df_test.reset_index(drop=True)
+    # df_train = df_train.reset_index(drop=True)
+    # df_val = df_val.reset_index(drop=True)
+    # df_test = df_test.reset_index(drop=True)
 
     return df_train, df_val, df_test
 

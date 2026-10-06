@@ -127,7 +127,7 @@ def generate_loan_splits(*, seed=42, scenario='loan_no_bias', train=6000,
     sizes = dict(train=train, validation=validation, audit=audit, reference=reference)
     if any(type(n) is not int or n < 1 for n in sizes.values()):
         raise ValueError('All loan split sizes must be positive integer TOTAL counts.')
-    n = train+validation+audit
+    n = train+validation+audit  # should be equal to reference
     generated = generate_loan_dataset(scenario, seed=seed, sample_size=n, overrides=loan_overrides)
     frame = generated['data_df']
     perm = np.random.RandomState(seed).permutation(n)

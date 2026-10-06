@@ -696,6 +696,17 @@ def save_audited_result(result, out, audit, predictive_metrics, group_metrics, a
     for name, value in additional.items():
         _json_dump(value, folder / f'{name}.json')
     data = result.data
+    coverage = []
+    for name, gid in data.loaded.group_id.items():
+        row = {'group':str(name),'group_id':int(gid)}
+        for split, frame in [('train',data.train_df),('validation',data.val_df),('test',data.test_df)]:
+            mask = frame[data.spec.group_id_col] == gid
+            row[split+'_support'] = int(mask.sum())
+            row[split+'_positive'] = int((frame.loc[mask,data.spec.label_col] == 1).sum())
+        row['evaluated'] = row['test_support'] > 0
+        coverage.append(row)
+    pd.DataFrame(coverage).to_csv(folder/'group_coverage.csv',index=False)
+    
     np.savez_compressed(folder / 'audit_rows.npz',
         y=data.test_df[data.spec.label_col].to_numpy(),
         group_id=data.test_df[data.spec.group_id_col].to_numpy(),

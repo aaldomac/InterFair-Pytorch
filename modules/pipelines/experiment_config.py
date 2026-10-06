@@ -28,7 +28,7 @@ def read_config(path):
     n = pipeline.get('n_models',5)
     if type(n) is not int or n < 1:
         raise ValueError('n_models must be a positive integer')
-    fields = {'split':{'test_size','val_size','stratify'},
+    fields = {'split':{'test_size','val_size','stratify','rare_group_policy'},
               'loader':{'batch_size','eval_batch_size','shuffle_train'},
               'model':{'hidden_dims','dropout'}, 'optimizer':{'lr','weight_decay'},
               'train':{'epochs','patience','binary','threshold','grad_clip_norm','restore_best','verbose'}}
