@@ -314,7 +314,7 @@ def equal_opportunity(
     _validate_same_length(preds=preds_t, labels=labels_t, group_ids=group_ids_t)
 
     groups = _unique_sorted_long(group_ids_t, name="group_ids")
-
+    print(f"preds_t: {preds_t}, labels_t: {labels_t}, group_ids_t: {group_ids_t}, groups: {groups}/")
     if len(groups) < 2:
         matrix = torch.zeros((len(groups), len(groups)), dtype=torch.float32)
         return 0.0, matrix, groups
@@ -332,6 +332,7 @@ def equal_opportunity(
 
     matrix = _build_pairwise_matrix(groups, pairwise_fn, diagonal_value=0.0)
     aggregate = _max_off_diagonal(matrix)
+    print(f"Matrix: {matrix}, aggregate: {aggregate}/")
     return aggregate, matrix, groups
 
 
@@ -804,12 +805,30 @@ def evaluate_ensemble_fairness(
 
     mean_probs = _as_tensor(ensemble_outputs["mean_probs"], dtype=torch.float32, name="mean_probs")
 
-    if "predictions" in ensemble_outputs:
-        pred_labels = _as_1d_tensor(ensemble_outputs["predictions"], dtype=torch.long, name="predictions",)
-    else:
-        pred_labels = prediction_scores_to_labels(mean_probs, threshold=threshold, positive_class=positive_class,)
+    positive_scores = positive_class_scores(
+        mean_probs,
+        positive_class=positive_class,
+    )
 
-    positive_scores = positive_class_scores(mean_probs, positive_class=positive_class,)
+    if binary:
+        # Recompute using the requested threshold, ignoring saved argmax labels.
+        is_positive = positive_scores >= threshold
+        pred_labels = torch.where(
+            is_positive,
+            torch.full_like(is_positive, positive_class, dtype=torch.long),
+            torch.full_like(is_positive, 1 - positive_class, dtype=torch.long),
+        )
+    elif "predictions" in ensemble_outputs:
+        pred_labels = _as_1d_tensor(
+            ensemble_outputs["predictions"],
+            dtype=torch.long,
+            name="predictions",
+        )
+    else:
+        pred_labels = prediction_scores_to_labels(
+            mean_probs,
+            positive_class=positive_class,
+        )
 
     sp_agg, sp_matrix, sp_groups = statistical_parity(positive_scores, group_ids_t, threshold=threshold)
     di_agg, di_matrix, di_groups = disparate_impact(positive_scores, group_ids_t, threshold=threshold)
