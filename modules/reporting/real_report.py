@@ -25,18 +25,24 @@ def statistics(frame, keys, metrics):
 
 def report(folder, out=None):
     from modules.reporting.synthetic_report import latex_table
-    folder=Path(folder); output=Path(out) if out else folder/'report'
+    folder = Path(folder)
+    output = Path(out) if out else folder/'report'
     if output.resolve().is_relative_to((folder/'runs').resolve()):
         raise ValueError('Report destination must not be inside the training runs')
     runs=[]; groups=[]; pairs=[]; coverages=[]
     for run in sorted((folder/'runs').glob('*/seed_*')):
-        if not (run/'COMPLETE').exists(): continue
+        if not (run/'COMPLETE').exists(): 
+            continue
         identity=dict(condition=run.parent.name,seed=int(run.name.removeprefix('seed_')))
         frame=pd.read_csv(run/'summary.csv')
-        if len(frame)!=1: raise ValueError(f'Expected one summary row: {run}')
-        row=frame.iloc[0].to_dict(); row.update(identity); row.pop('data_seed',None)
+        if len(frame)!=1: 
+            raise ValueError(f'Expected one summary row: {run}')
+        row=frame.iloc[0].to_dict()
+        row.update(identity)
+        row.pop('data_seed',None)
         scalar=run/'audit/classical_summary.json'
-        if scalar.exists(): row.update(_json(scalar))
+        if scalar.exists(): 
+            row.update(_json(scalar))
         else:
             legacy=run/'audit/fairness.json'
             if legacy.exists():
@@ -65,7 +71,8 @@ def report(folder, out=None):
         coverage=run/'audit/group_coverage.csv'
         if coverage.exists():
             coverages.extend(dict(identity,**item) for item in pd.read_csv(coverage,dtype={'group':str}).to_dict('records'))
-    if not runs: raise ValueError('No completed runs under folder/runs/<condition>/seed_*')
+    if not runs: 
+        raise ValueError('No completed runs under folder/runs/<condition>/seed_*')
     frame=pd.DataFrame(runs)
     if frame['positive_label'].nunique()>1:
         raise ValueError('Runs have different positive-label conventions; report these separately')
@@ -83,11 +90,13 @@ def report(folder, out=None):
         texts.append('Group coverage unavailable in older runs; absence cannot be assessed from observed groups alone.')
     tables=[('runs',frame,['condition'],{'seed','model_seed_start','support'}),
             ('groups',pd.DataFrame(groups),['condition','group_id','group'],{'seed','group_id'})]
-    if pairs: tables.append(('pairs',pd.DataFrame(pairs),['condition','pair'],{'seed'}))
+    if pairs: 
+        tables.append(('pairs',pd.DataFrame(pairs),['condition','pair'],{'seed'}))
     for name,table,keys,exclude in tables:
         table.to_csv(output/f'{name}.csv',index=False)
         metrics=[c for c in table.select_dtypes('number') if c not in exclude and c not in keys]
-        # Null interactions absent on real data are excluded rather than fabricated.
+        # Null interactions absent on real data are excluded rather than fabricated
+        # TODO: Apply the formula from our paper to compute interaction metrics from observed group means, if desired.
         metrics=[m for m in metrics if table[m].notna().any()]
         stats=statistics(table,keys,metrics)
         stats.to_csv(output/f'{name}_stats.csv',index=False)
@@ -96,7 +105,8 @@ def report(folder, out=None):
             display[m]=[('NA' if pd.isna(mean) else f'{mean:.4g} ± '+('NA' if pd.isna(sd) else f'{sd:.4g}'))
                         for mean,sd in zip(stats[m+'_mean'],stats[m+'_std'])]
         (output/f'{name}.tex').write_text(latex_table(display))
-        if name=='runs': texts.append(display.to_string(index=False))
+        if name=='runs': 
+            texts.append(display.to_string(index=False))
     if coverages: pd.DataFrame(coverages).to_csv(output/'group_coverage.csv',index=False)
     (output/'report.txt').write_text('\n\n'.join(texts)+'\n')
     return output

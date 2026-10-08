@@ -190,7 +190,7 @@ def prepare_data(config: PipelineConfig) -> PreparedData:
     seed_everything(config.split.seed)
 
     if config.dataset_name.lower() == 'celeba':
-        from modules.data.celeba_adapter import prepare_image_data
+        from modules.data.CelebA import prepare_image_data
         return prepare_image_data(config)
     loaded = load_dataset_by_name(config.dataset_name, **dict(config.dataset_kwargs))
     spec = _get_spec(loaded)

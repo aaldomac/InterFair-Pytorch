@@ -1,4 +1,4 @@
-output: experiments/adult
+output: experiments/adult_binary_attrs
 model_seed_base: 1000
 data_seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
 dataset:
@@ -24,3 +24,12 @@ audit:
   alpha: 0.05
   fairness: true
   distribution: true
+  interaction_weights:
+    '0': -1
+    '1': +1
+    '2': +1
+    '3': -1
+    '4': +1
+    '5': -1
+    '6': -1
+    '7': +1

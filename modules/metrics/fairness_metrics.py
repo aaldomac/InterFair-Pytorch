@@ -314,7 +314,6 @@ def equal_opportunity(
     _validate_same_length(preds=preds_t, labels=labels_t, group_ids=group_ids_t)
 
     groups = _unique_sorted_long(group_ids_t, name="group_ids")
-    print(f"preds_t: {preds_t}, labels_t: {labels_t}, group_ids_t: {group_ids_t}, groups: {groups}/")
     if len(groups) < 2:
         matrix = torch.zeros((len(groups), len(groups)), dtype=torch.float32)
         return 0.0, matrix, groups
@@ -332,7 +331,6 @@ def equal_opportunity(
 
     matrix = _build_pairwise_matrix(groups, pairwise_fn, diagonal_value=0.0)
     aggregate = _max_off_diagonal(matrix)
-    print(f"Matrix: {matrix}, aggregate: {aggregate}/")
     return aggregate, matrix, groups
 
 
@@ -850,7 +848,6 @@ def evaluate_ensemble_fairness(
     uncertainty_results: Dict[str, Any] = {}
     uncertainty_key_map = {
         "predictive_entropy": "predictive_entropy",
-        "aleatoric_uncertainty": "aleatoric_uncertainty",
         "aleatoric_uncertainty": "aleatoric_uncertainty",
         "epistemic_uncertainty": "epistemic_uncertainty",
     }
