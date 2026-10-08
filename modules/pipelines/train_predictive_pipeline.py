@@ -27,7 +27,7 @@ from modules.predictive.losses import (
     MulticlassClassificationLoss,
     Regularizer,
 )
-from modules.predictive.metrics import logits_to_probs, probs_to_labels
+from modules.predictive.metrics import entropy, logits_to_probs, probs_to_labels
 from modules.predictive.trainer import PredictiveTrainer, TrainConfig
 from modules.predictive.ensemble import evaluate_ensemble
 
@@ -435,6 +435,7 @@ def evaluate_group_metrics(
 
     group_correct: Dict[int, int] = {}
     group_total: Dict[int, int] = {}
+    group_mix_entropy: Dict[int, float] = {}
 
     for x, y, g in loader or data.test_loader:
         x = x.to(device)
@@ -452,6 +453,7 @@ def evaluate_group_metrics(
             gid = int(group_id)
             group_correct[gid] = group_correct.get(gid, 0) + int(correct[mask].sum().item())
             group_total[gid] = group_total.get(gid, 0) + int(mask.sum().item())
+            group_mix_entropy[gid] = entropy(probs[mask].mean(dim=0))
 
     rows = []
     id_to_group = {}
@@ -467,12 +469,14 @@ def evaluate_group_metrics(
     for gid in sorted(group_total):
         total = group_total[gid]
         correct = group_correct.get(gid, 0)
+        mix_entropy = group_mix_entropy.get(gid, np.nan)
         rows.append(
             {
                 "group_id": gid,
                 "group": id_to_group.get(gid, str(gid)),
                 "support": total,
                 "accuracy": correct / total if total > 0 else np.nan,
+                "group_mix_entropy": mix_entropy.cpu().numpy(),
             }
         )
 

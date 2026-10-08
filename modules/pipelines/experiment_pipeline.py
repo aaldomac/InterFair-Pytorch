@@ -13,7 +13,7 @@ def run_experiment(config, *, out=None, audit_config=None, regularizer=None,
         raise FileExistsError(f'Refusing to overwrite {out}')
     result = run_predictive_pipeline(config, regularizer=regularizer,
         regularizer_weight=regularizer_weight, fair_loader=fair_loader)
-    data, ensemble = result.data, result.ensemble_metrics
+    data, ensemble, group_metrics = result.data, result.ensemble_metrics, result.group_metrics
     labels = data.test_df[data.spec.label_col].to_numpy(dtype=int)
     groups = data.test_df[data.spec.group_id_col].to_numpy(dtype=int)
     names = {int(v):str(k) for k,v in data.loaded.group_id.items()}
@@ -24,6 +24,7 @@ def run_experiment(config, *, out=None, audit_config=None, regularizer=None,
         audit = audit_uncertainties(ensemble, groups, alpha=options.get('alpha', .05),
             group_names=names, interaction_weights=options.get('interaction_weights'),
             num_classes=data.num_classes)
+        audit['group_mix_entropy'] = {int(k):v for k,v in group_metrics.group_mix_entropy.items()}
         meta = data.loaded.metadata
         if 'oracle_entropy_bits' in meta:
             oracle = np.asarray(meta['oracle_entropy_bits'])*np.log(2)
