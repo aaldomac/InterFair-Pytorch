@@ -57,7 +57,8 @@ def load_raw_adult(drop_na: bool = True, csv_path=None) -> Tuple[pd.DataFrame, L
     return df, original_columns
 
 
-def preprocess_adult(df: pd.DataFrame, positive_label: str = "<=50K") -> Tuple[pd.DataFrame, Dict[str, int]]:
+
+def preprocess_adult(df: pd.DataFrame, positive_label: str = "<=50K", binary_attrs: bool = True) -> Tuple[pd.DataFrame, Dict[str, int]]:
     """
     Preprocess the Adult Income dataset.
 
@@ -94,8 +95,12 @@ def preprocess_adult(df: pd.DataFrame, positive_label: str = "<=50K") -> Tuple[p
     if df["gender"].isna().any():
         raise ValueError("Column 'gender' contains unexpected values.")
 
-    df["race"] = df["race"].astype("category")
-
+    if binary_attrs:
+        df["race"] = df["race"].fillna("White")  # Fill missing race with "White" (most common)
+        df["race"] = (df["race"] != "White").astype(int)
+    else:
+        df["race"] = df["race"].astype("category")
+    
     df["native-country"] = df["native-country"].fillna("United-States")
     df["native-country"] = (df["native-country"] != "United-States").astype(int)
 
@@ -130,12 +135,13 @@ def load_dataset(
         pg_num_draws: int = 20000,
         pg_ci: float = 0.95,
         seed: int = 42,
+        binary_attrs: bool = True
     ) -> LoadedDataset:
     """
     Standard Adult loader used by `load_dataset_by_name("adult")`.
     """
     df, original_columns = load_raw_adult(drop_na=drop_na, csv_path=csv_path)
-    df, group_id = preprocess_adult(df, positive_label=positive_label)
+    df, group_id = preprocess_adult(df, positive_label=positive_label, binary_attrs=binary_attrs)
 
     pg_table = None
     pg = None
