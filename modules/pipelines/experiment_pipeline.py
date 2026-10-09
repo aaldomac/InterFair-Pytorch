@@ -24,7 +24,8 @@ def run_experiment(config, *, out=None, audit_config=None, regularizer=None,
         audit = audit_uncertainties(ensemble, groups, alpha=options.get('alpha', .05),
             group_names=names, interaction_weights=options.get('interaction_weights'),
             num_classes=data.num_classes)
-        audit['group_mix_entropy'] = {int(k):v for k,v in group_metrics.group_mix_entropy.items()}
+        audit['group_mix_entropy'] = {int(k):v for k,v in group_metrics.group_mix_entropy.items()} 
+        audit['group_het_entropy'] = {group: entropy_mix - row[-1] for (group, entropy_mix), row in zip(audit['group_mix_entropy'].items(),audit['means'],strict=True,)}
         meta = data.loaded.metadata
         if 'oracle_entropy_bits' in meta:
             oracle = np.asarray(meta['oracle_entropy_bits'])*np.log(2)

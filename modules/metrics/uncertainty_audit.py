@@ -54,7 +54,7 @@ def audit_uncertainties(ensemble: Dict[str, np.ndarray], groups: Union[List, np.
             raise ValueError('Interaction weights must be finite, nonzero and sum to zero.')
         contrast = w @ means  # shape: (3,) -> weighted contrast of group means for aleatoric, epistemic, total
         interaction = contrast.tolist()  # shape: (3,) -> Interaction metrics for aleatoric, epistemic, total
-        f_int = float(np.max(np.abs(contrast[:2]))/(scale*bound))
+        f_int = float(np.max(np.abs(contrast[:2]))/(scale*bound))  # takes the max. between I_ale and I_epis and then normalizes
     return dict(component_order=['alea','epis','tot'], group_ids=ids.tolist(),
                 group_order=names, means=means.tolist(), counts=counts.tolist(), pairs=pairs,
                 maxima={k:max(p[k] for p in pairs.values()) for k in next(iter(pairs.values()))},
