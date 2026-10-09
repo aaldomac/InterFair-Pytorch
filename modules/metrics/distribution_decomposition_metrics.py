@@ -1,3 +1,4 @@
+"""Compares expectations of predictive distirbutions across groups. Compares envelopes with theoretical epsilon bounds."""
 from __future__ import annotations
 
 from dataclasses import dataclass

@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-import kagglehub
 import pandas as pd
 
 
@@ -27,7 +26,7 @@ ADULT_SPEC = DatasetSpec(
 # -------------------------------------------------------------
 # LOAD DATASETS AND PREPROCESSING
 # -------------------------------------------------------------
-def load_raw_adult(drop_na: bool = True) -> Tuple[pd.DataFrame, List[str]]:
+def load_raw_adult(drop_na: bool = True, csv_path=None) -> Tuple[pd.DataFrame, List[str]]:
     """
     Load the Adult Income dataset from Kaggle.
 
@@ -38,11 +37,19 @@ def load_raw_adult(drop_na: bool = True) -> Tuple[pd.DataFrame, List[str]]:
         df: Loaded DataFrame.
         original_columns: Original column names before preprocessing.
     """
-    dataset_path = kagglehub.dataset_download("wenruliu/adult-income-dataset")
-    print("Path to dataset files:", dataset_path)
-    csv_file = os.path.join(dataset_path, "adult.csv")
+    if csv_path is None:
+        import kagglehub
+        dataset_path = kagglehub.dataset_download("wenruliu/adult-income-dataset")
+        csv_file = os.path.join(dataset_path, "adult.csv")
+    else:
+        csv_file = csv_path
 
-    df = pd.read_csv(csv_file, na_values="?")
+    df = pd.read_csv(csv_file, na_values=["?", " ?"], skipinitialspace=True)
+    df.columns = df.columns.str.strip()
+    if "sex" in df.columns and "gender" not in df.columns:
+        df = df.rename(columns={"sex": "gender"})
+    for col in df.select_dtypes(include=['object','string']):
+        df[col] = df[col].str.strip().replace('?',pd.NA)
     if drop_na:
         df = df.dropna().reset_index(drop=True)
 
@@ -50,7 +57,8 @@ def load_raw_adult(drop_na: bool = True) -> Tuple[pd.DataFrame, List[str]]:
     return df, original_columns
 
 
-def preprocess_adult(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, int]]:
+
+def preprocess_adult(df: pd.DataFrame, positive_label: str = "<=50K", binary_attrs: bool = True) -> Tuple[pd.DataFrame, Dict[str, int]]:
     """
     Preprocess the Adult Income dataset.
 
@@ -72,25 +80,35 @@ def preprocess_adult(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, int]]:
 
     for col in df.columns:
         if df[col].dtype == "object":
-            df[col] = df[col].astype(str).str.strip()
+            df[col] = df[col].astype("string").str.strip()
 
     required_cols = ["gender", "race", "native-country", "income"]
     _validate_columns_exist(df, required_cols)
+
+    if positive_label not in ('<=50K', '>50K'):
+        raise ValueError('positive label must be <=50K or >50K')
+    if df[required_cols].isna().any().any():
+        raise ValueError('Missing protected attributes/label; use drop_na=True')
 
     # Protected attributes
     df["gender"] = df["gender"].map({"Male": 0, "Female": 1})
     if df["gender"].isna().any():
         raise ValueError("Column 'gender' contains unexpected values.")
 
-    df["race"] = df["race"].astype("category")
-
+    if binary_attrs:
+        df["race"] = df["race"].fillna("White")  # Fill missing race with "White" (most common)
+        df["race"] = (df["race"] != "White").astype(int)
+    else:
+        df["race"] = df["race"].astype("category")
+    
     df["native-country"] = df["native-country"].fillna("United-States")
     df["native-country"] = (df["native-country"] != "United-States").astype(int)
 
     # Label
-    df["income"] = df["income"].map({"<=50K": 1, ">50K": 0}).astype(int)
-    if df["income"].isna().any():
-        raise ValueError("Column 'income' contains unexpected values.")
+    labels = df["income"].astype('string').str.rstrip('.')
+    if not labels.isin(['<=50K','>50K']).all():
+        raise ValueError('Unexpected income labels; expected <=50K or >50K')
+    df['income'] = (labels == positive_label).astype(int)
 
     # Intersectional group
     df["group"] = (
@@ -110,17 +128,20 @@ def preprocess_adult(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, int]]:
 def load_dataset(
         *, 
         drop_na: bool = True,
+        csv_path=None,
+        positive_label: str = "<=50K",
         compute_pg: bool = True,
         pg_alpha: float = 1.0,
         pg_num_draws: int = 20000,
         pg_ci: float = 0.95,
         seed: int = 42,
+        binary_attrs: bool = True
     ) -> LoadedDataset:
     """
     Standard Adult loader used by `load_dataset_by_name("adult")`.
     """
-    df, original_columns = load_raw_adult(drop_na=drop_na)
-    df, group_id = preprocess_adult(df)
+    df, original_columns = load_raw_adult(drop_na=drop_na, csv_path=csv_path)
+    df, group_id = preprocess_adult(df, positive_label=positive_label, binary_attrs=binary_attrs)
 
     pg_table = None
     pg = None

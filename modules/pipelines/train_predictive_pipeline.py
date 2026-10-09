@@ -27,7 +27,7 @@ from modules.predictive.losses import (
     MulticlassClassificationLoss,
     Regularizer,
 )
-from modules.predictive.metrics import logits_to_probs, probs_to_labels
+from modules.predictive.metrics import entropy, logits_to_probs, probs_to_labels
 from modules.predictive.trainer import PredictiveTrainer, TrainConfig
 from modules.predictive.ensemble import evaluate_ensemble
 
@@ -42,6 +42,7 @@ class SplitConfig:
     val_size: float = 0.15
     seed: int = 42
     stratify: Optional[str] = None
+    rare_group_policy: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -74,6 +75,7 @@ class PipelineConfig:
     optimizer: OptimizerConfig = field(default_factory=OptimizerConfig)
     train: TrainConfig = field(default_factory=lambda: TrainConfig(epochs=50, patience=5, binary=True))
 
+    model_seed: Optional[int] = None
     n_models: int = 1
     append_protected_to_predictor: bool = True
     build_px_loaders: bool = False
@@ -135,7 +137,7 @@ def _get_spec(loaded: LoadedDataset) -> DatasetSpec:
     except KeyError as exc:
         raise KeyError(
             "LoadedDataset.metadata must contain a DatasetSpec under metadata['spec']. "
-            "Your dataset-specific module should return LoadedDataset(..., metadata={'spec': SPEC})."
+            "The dataset-specific module should return LoadedDataset(..., metadata={'spec': SPEC})."
         ) from exc
 
     if not isinstance(spec, DatasetSpec):
@@ -187,18 +189,34 @@ def prepare_data(config: PipelineConfig) -> PreparedData:
     """Download/load data, split it, fit preprocessing schemas, and build loaders."""
     seed_everything(config.split.seed)
 
+    if config.dataset_name.lower() == 'celeba':
+        from modules.data.CelebA import prepare_image_data
+        return prepare_image_data(config)
     loaded = load_dataset_by_name(config.dataset_name, **dict(config.dataset_kwargs))
     spec = _get_spec(loaded)
 
     stratify_col = config.split.stratify or spec.group_col
 
-    train_df, val_df, test_df = split_df(
-        loaded.df,
-        test_size=config.split.test_size,
-        val_size=config.split.val_size,
-        seed=config.split.seed,
-        stratify=stratify_col,
-    )
+    if config.build_px_loaders:
+        raise ValueError("build_px_loaders is unsupported; pass a fair_loader explicitly.")
+    fixed = loaded.metadata.get("split_indices")
+    if fixed is not None:
+        names = ("train", "validation", "audit" if "audit" in fixed else "test")
+        indices = [np.asarray(fixed[name]) for name in names]
+        all_indices = np.concatenate([np.asarray(v) for v in fixed.values()])
+        if (not np.issubdtype(all_indices.dtype, np.integer)
+                or len(np.unique(all_indices)) != len(all_indices)
+                or (all_indices < 0).any() or (all_indices >= len(loaded.df)).any()
+                or any(len(v) == 0 for v in indices)):
+            raise ValueError("Fixed splits must be nonempty, disjoint positional indices in range.")
+        train_df, val_df, test_df = [loaded.df.iloc[idx].copy() for idx in indices]
+    else:
+        train_df, val_df, test_df = split_df(
+            loaded.df, test_size=config.split.test_size,
+            val_size=config.split.val_size, seed=config.split.seed,
+            stratify=stratify_col, rare_group_policy=config.split.rare_group_policy,
+        )
+    loaded.pg_table, loaded.pg = compute_pg_dirichlet(train_df)
 
     num_classes = _infer_num_classes(train_df, spec.label_col)
     binary = bool(config.train.binary)
@@ -259,6 +277,9 @@ def prepare_data(config: PipelineConfig) -> PreparedData:
 def build_model(data: PreparedData, config: PipelineConfig) -> nn.Module:
     num_outputs = 1 if data.binary else data.num_classes
 
+    if data.predictor_schema.get('modality') == 'image':
+        from modules.predictive.models import ImageClassifier
+        return ImageClassifier(num_outputs=num_outputs, dropout=config.model.dropout)
     return MLPClassifier(
         input_dim=data.num_features,
         num_outputs=num_outputs,
@@ -363,7 +384,7 @@ def train_models(
         model, history = train_one_model(
             data,
             config,
-            seed=config.split.seed + model_idx,
+            seed=(config.model_seed if config.model_seed is not None else config.split.seed) + model_idx,
             regularizer=regularizer,
             regularizer_weight=regularizer_weight,
             fair_loader=fair_loader,
@@ -414,6 +435,7 @@ def evaluate_group_metrics(
 
     group_correct: Dict[int, int] = {}
     group_total: Dict[int, int] = {}
+    group_mix_entropy: Dict[int, float] = {}
 
     for x, y, g in loader or data.test_loader:
         x = x.to(device)
@@ -431,6 +453,7 @@ def evaluate_group_metrics(
             gid = int(group_id)
             group_correct[gid] = group_correct.get(gid, 0) + int(correct[mask].sum().item())
             group_total[gid] = group_total.get(gid, 0) + int(mask.sum().item())
+            group_mix_entropy[gid] = entropy(probs[mask].mean(dim=0))
 
     rows = []
     id_to_group = {}
@@ -446,12 +469,14 @@ def evaluate_group_metrics(
     for gid in sorted(group_total):
         total = group_total[gid]
         correct = group_correct.get(gid, 0)
+        mix_entropy = group_mix_entropy.get(gid, np.nan)
         rows.append(
             {
                 "group_id": gid,
                 "group": id_to_group.get(gid, str(gid)),
                 "support": total,
                 "accuracy": correct / total if total > 0 else np.nan,
+                "group_mix_entropy": mix_entropy.cpu().numpy(),
             }
         )
 
@@ -471,7 +496,7 @@ def evaluate_models(
     group_metrics = evaluate_group_metrics(models[0], data, config, data.test_loader)
 
     ensemble_metrics = None
-    if len(models) > 1:
+    if len(models) >= 1:
         ensemble_metrics = evaluate_ensemble(
             models,
             data.test_loader,
@@ -496,27 +521,20 @@ def run_predictive_pipeline(
     """Run the complete pipeline.
 
     Steps:
-        1. Download/load dataset through `modules.datasets.<dataset_name>`.
+        1. Download/load dataset through `modules.data.<dataset_name>`.
         2. Split into train/validation/test.
         3. Fit preprocessing on train only.
         4. Build PyTorch DataLoaders.
         5. Train one model or an ensemble.
         6. Evaluate on the test set.
 
-    If `regularizer` is provided and no explicit `fair_loader` is given, the pipeline uses
-    `data.px_train_loader` when `config.build_px_loaders=True`.
+    Regularizers require an explicit fair_loader. Synthetic fixed splits are
+    respected; image adapters use their official partitions.
     """
     data = prepare_data(config)
 
-    # TODO: px_train_loader does not specify the fair_loader. It was originally made for loading data for the generative models.
     if regularizer is not None and fair_loader is None:
-        if data.px_train_loader is None:
-            raise ValueError(
-                "A regularizer was provided, but no fair_loader was passed and "
-                "config.build_px_loaders=False. Either pass fair_loader explicitly or set "
-                "build_px_loaders=True."
-            )
-        fair_loader = data.px_train_loader
+        raise ValueError("Pass an explicit fair_loader when using a regularizer.")
 
     models, histories = train_models(
         data,

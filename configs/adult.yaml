@@ -1,0 +1,26 @@
+output: experiments/adult
+model_seed_base: 1000
+data_seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+dataset:
+  name: adult
+  kwargs:
+    drop_na: true
+    compute_pg: false  # Shared preparation computes proportions on training data.
+    positive_label: '<=50K'  # Preserves the original coding; use '>50K' for high-income positive.
+    # csv_path: data/adult.csv  # Omit to download through your existing Kaggle loader.
+conditions:
+  baseline: {}
+pipeline:
+  n_models: 5
+  append_protected_to_predictor: false
+  split:
+    test_size: 0.25
+    val_size: 0.15  # Fraction of the remaining development rows.
+    rare_group_policy: train_only
+  model: {hidden_dims: [128, 64], dropout: 0.0}
+  train: {epochs: 300, patience: 30, binary: true}
+audit:
+  enabled: true
+  alpha: 0.05
+  fairness: true
+  distribution: true

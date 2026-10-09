@@ -58,3 +58,18 @@ class MLPClassifier(nn.Module):
         if x.shape[1] != self.input_dim:
             raise ValueError(f"Expected input with {self.input_dim} features, got {x.shape[1]}")
         return self.model(x)
+
+class ImageClassifier(nn.Module):
+    """Compact CNN baseline with adaptive pooling for CelebA images."""
+    def __init__(self, num_outputs=1, dropout=0.2):
+        super().__init__()
+        self.num_outputs = num_outputs
+        self.net = nn.Sequential(
+            nn.Conv2d(3, 32, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2),
+            nn.Conv2d(32, 64, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2),
+            nn.Conv2d(64, 128, 3, padding=1), nn.ReLU(),
+            nn.AdaptiveAvgPool2d(1), nn.Flatten(), nn.Dropout(dropout),
+            nn.Linear(128, num_outputs))
+
+    def forward(self, x):
+        return self.net(x)

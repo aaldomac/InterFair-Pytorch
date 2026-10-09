@@ -1,0 +1,50 @@
+output: experiments/kanubala
+data_seeds:
+- 42
+- 100
+- 11
+- 123
+- 789
+- 999
+- 1234
+- 2024
+- 3456
+- 5678
+model_seed_base: 1000
+conditions:
+  loan_no_bias:
+    scenario: loan_no_bias
+  loan_single:
+    scenario: loan_single
+  loan_additive:
+    scenario: loan_additive
+  loan_intersectional:
+    scenario: loan_intersectional
+  loan_compounded:
+    scenario: loan_compounded
+pipeline:
+  n_models: 5
+  append_protected_to_predictor: false
+  model:
+    hidden_dims:
+    - 128
+    - 64
+    dropout: 0.0
+  device: cpu
+dataset:
+  name: synthetic_data
+  kwargs:
+    train: 6000
+    validation: 1500
+    audit: 2500
+    reference: 10000
+audit:
+  enabled: true
+  alpha: 0.05
+  interaction_weights:
+    '0': 1
+    '1': -1
+    '2': -1
+    '3': 1
+  fairness: true
+  distribution: true
