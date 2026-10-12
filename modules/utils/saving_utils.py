@@ -364,7 +364,6 @@ def save_preprocessing_artifacts(
 
     Compatible with both schemas from the latest dataset utilities:
         - predictor_schema from fit_predictor_schema
-        - px_schema from fit_schema_px
 
     JSON stores human-readable metadata.
     Joblib stores the fitted sklearn objects and full schema for exact reuse.
@@ -397,7 +396,6 @@ def save_preprocessing_artifacts(
 def save_all_preprocessing_artifacts(
     predictor_schema: Mapping[str, Any],
     folder: PathLike,
-    px_schema: Optional[Mapping[str, Any]] = None,
 ) -> None:
     folder_path = _ensure_dir(folder)
     save_preprocessing_artifacts(
@@ -405,13 +403,6 @@ def save_all_preprocessing_artifacts(
         folder_path / "predictor",
         name="predictor_preprocessing",
     )
-
-    if px_schema is not None:
-        save_preprocessing_artifacts(
-            px_schema,
-            folder_path / "px",
-            name="px_preprocessing",
-        )
 
 # ---------------------------------------------------------------------
 # SPLITS / RNG / ENVIRONMENT
@@ -497,7 +488,6 @@ def save_full_experiment(
     exact_path: Optional[PathLike]=None,
     predictive_optimizers: Optional[Sequence[torch.optim.Optimizer]]=None,
     predictor_schema: Optional[Mapping[str, Any]] = None,
-    px_schema: Optional[Mapping[str, Any]] = None,
     histories: Optional[Mapping[str, Sequence[Any]] | Sequence[Mapping[str, Sequence[Any]]]] = None,
     model_metadata: Optional[Mapping[str, Any]] = None,
     data_info: Optional[Mapping[str, Any]] = None,
@@ -529,7 +519,6 @@ def save_full_experiment(
     if predictor_schema is not None:
         save_all_preprocessing_artifacts(
             predictor_schema=predictor_schema,
-            px_schema=px_schema,
             folder=exp_folder / "preprocessing",
         )
 
@@ -602,13 +591,12 @@ def save_full_reproducibility_bundle(
     model_metadata: Optional[Mapping[str, Any]] = None,
     histories: Optional[Mapping[str, Sequence[Any]] | Sequence[Mapping[str, Sequence[Any]]]] = None,
     data_info: Optional[Mapping[str, Any]] = None,
-    px_schema: Optional[Mapping[str, Any]] = None,
 ) -> None:
     """Save the main reproducibility artifacts for an experiment."""
     experiment_path = _ensure_dir(experiment_folder)
 
     save_experiment_config(config, experiment_path)
-    save_all_preprocessing_artifacts(schema, experiment_path / "preprocessing", px_schema=px_schema)
+    save_all_preprocessing_artifacts(schema, experiment_path / "preprocessing")
 
     if train_idx is not None and val_idx is not None and test_idx is not None:
         save_split_indices(train_idx, val_idx, test_idx, experiment_path / "splits")

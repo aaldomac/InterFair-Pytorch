@@ -106,13 +106,6 @@ def _positive_prediction_rate(preds: torch.Tensor, threshold: float = 0.5) -> fl
         return 0.0
     return float((preds >= threshold).float().mean().item())
 
-# TODO: Think if this function makes sense and will be used
-def _class_prediction_rate(pred_labels: torch.Tensor, positive_class: int = 1) -> float:
-    pred_labels = pred_labels.view(-1).long()
-    if pred_labels.numel() == 0:
-        return 0.0
-    return float((pred_labels == positive_class).float().mean().item())
-
 
 def _positive_scores(
     predictions_or_probs: TensorLike,
@@ -143,22 +136,6 @@ def _positive_scores(
         positive_class=positive_class,
     )
     return (labels == positive_class).float()
-
-# TODO: Consider if this function makes sense and will be used
-def _rate_for_positive_class(
-    predictions_or_probs: TensorLike,
-    *,
-    binary: bool = True,
-    threshold: float = 0.5,
-    positive_class: int = 1,
-) -> float:
-    scores = _positive_scores(
-        predictions_or_probs,
-        binary=binary,
-        threshold=threshold,
-        positive_class=positive_class,
-    )
-    return _positive_prediction_rate(scores, threshold=threshold if binary else 0.5)
 
 
 # ==================================================

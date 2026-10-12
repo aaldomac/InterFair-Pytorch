@@ -22,9 +22,6 @@ class RegularizerContext:
     fair_loader: Optional[torch.utils.data.DataLoader] = None
     extras: Mapping[str, Any] = field(default_factory=dict)
 
-class NoRegularizer(nn.Module):
-    def forward(self, context: RegularizerContext) -> tuple[torch.Tensor, dict[str, float]]:
-        return torch.zeros((), devce=context.device), {}
     
 class CompositeLoss(nn.Module):
     """

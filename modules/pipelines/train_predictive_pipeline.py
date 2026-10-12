@@ -73,12 +73,11 @@ class PipelineConfig:
     loader: LoaderConfig = field(default_factory=LoaderConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
     optimizer: OptimizerConfig = field(default_factory=OptimizerConfig)
-    train: TrainConfig = field(default_factory=lambda: TrainConfig(epochs=50, patience=5, binary=True))
+    train: TrainConfig = field(default_factory=lambda: TrainConfig(epochs=300, patience=30, binary=True))
 
     model_seed: Optional[int] = None
-    n_models: int = 1
-    append_protected_to_predictor: bool = True
-    build_px_loaders: bool = False
+    n_models: int = 5
+    append_protected_to_predictor: bool = False
     device: Optional[str] = None
 
 
@@ -453,6 +452,9 @@ def evaluate_group_metrics(
             gid = int(group_id)
             group_correct[gid] = group_correct.get(gid, 0) + int(correct[mask].sum().item())
             group_total[gid] = group_total.get(gid, 0) + int(mask.sum().item())
+            # TODO: The next line is incorrect. It occurs inside the batch loop, so it overwrites the previous value.
+            # Consequently, the saved value describes the last batch containing that group, rather than the whole group.
+            # We should move the computation of U_mix to ensemble evaluation
             group_mix_entropy[gid] = entropy(probs[mask].mean(dim=0))
 
     rows = []
