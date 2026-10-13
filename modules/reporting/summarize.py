@@ -20,12 +20,10 @@ def main():
         args.folder/'by_condition_long.csv', index=False)
     # Preserve the existing two-header CSV layout, using the same statistics.
     wide = stats.set_index('condition')
-    legacy = pd.DataFrame(index=wide.index)
-    for metric in columns:
-        for label, suffix in [('count', '_n'), ('mean', '_mean'), ('std', '_std')]:
-            legacy[(metric, label)] = wide[metric+suffix]
-    legacy.columns = pd.MultiIndex.from_tuples(legacy.columns) if columns else pd.MultiIndex.from_arrays([[], []])
-    legacy.to_csv(args.folder/'by_condition.csv')
+    legacy = pd.DataFrame(
+        {(metric, label): wide[metric + suffix] for metric in columns for label, suffix in [('count', '_n'), ('mean', '_mean'), ('std', '_std'),]},index=wide.index,)
+    legacy.columns = (pd.MultiIndex.from_tuples(legacy.columns) if columns else pd.MultiIndex.from_arrays([[], []]))
+    legacy.to_csv(args.folder / 'by_condition.csv')
     print(f'Combined {len(frame)} runs. Standard deviations describe seed variability, not audit confidence intervals.')
 
 if __name__=='__main__':
