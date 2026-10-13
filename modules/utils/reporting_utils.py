@@ -1,7 +1,7 @@
 """Dataset-independent run discovery, seed aggregation and table formatting."""
 from pathlib import Path
 import pandas as pd
-
+import numpy as np
 
 def completed_runs(folder):
     return sorted(run for run in (Path(folder)/'runs').glob('*/seed_*')
@@ -18,8 +18,18 @@ def read_run_summaries(folder):
     return pd.concat(frames, ignore_index=True)
 
 
-def aggregate(frame, keys, metrics):
-    """One equally weighted observation per run; never pool audit individuals."""
+def aggregate(frame, keys, metrics, *, missing="skip"):
+    """Aggregate once; skip missing values for reports or reject them for plots.
+
+    Each input row is one equally weighted run. SD uses ddof=1.
+    """
+    if missing not in ("skip", "raise"):
+        raise ValueError("missing must be skip or raise")
+    frame = frame.copy()
+    for metric in metrics:
+        frame[metric] = pd.to_numeric(frame[metric], errors="raise")
+        if missing == "raise" and not np.isfinite(frame[metric].to_numpy(dtype=float)).all():
+            raise ValueError(f"Nonfinite values in {metric}")
     rows=[]
     for identity, part in frame.groupby(keys, sort=True, dropna=False):
         if not isinstance(identity, tuple):
@@ -33,6 +43,17 @@ def aggregate(frame, keys, metrics):
         rows.append(row)
     columns = list(keys) + ['runs'] + [m+suffix for m in metrics for suffix in ('_n', '_mean', '_std')]
     return pd.DataFrame(rows, columns=columns)
+
+
+def summary_to_long(stats, keys, metrics):
+    """Reshape already computed statistics; never aggregate them again."""
+    rows = []
+    for row in stats.to_dict('records'):
+        for metric in metrics:
+            rows.append({**{key: row[key] for key in keys}, 'metric': metric,
+                         'mean': row[metric+'_mean'], 'std': row[metric+'_std'],
+                         'n': row[metric+'_n']})
+    return pd.DataFrame(rows, columns=list(keys)+['metric', 'mean', 'std', 'n'])
 
 
 def mean_std_table(stats, keys, metrics, digits):

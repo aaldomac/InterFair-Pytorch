@@ -62,6 +62,8 @@ def summarize_metrics(frame, metrics, *, condition_col='condition', conditions=N
     For precomputed long summaries select input_format='summary'.
     Missing metrics/conditions or nonfinite means are rejected, not plotted as zero.
     """
+    if input_format not in ('runs', 'summary'):
+        raise ValueError('input_format must be runs or summary')
     metrics=[ALIASES.get(m,m) for m in metrics]
     if not metrics or len(set(metrics))!=len(metrics):
         raise ValueError('Select distinct metrics (including after alias resolution).')
@@ -97,13 +99,13 @@ def summarize_metrics(frame, metrics, *, condition_col='condition', conditions=N
             raise ValueError(f'Missing metrics {sorted(missing)}. Available columns: {list(frame)}')
         if seed_col in frame and frame.duplicated([condition_col,seed_col]).any():
             raise ValueError('Multiple rows per condition/seed. Filter group/pair first with --where, or use another condition column.')
-        for c in order:
-            part=frame[frame[condition_col]==c]
-            for m in metrics:
-                x=pd.to_numeric(part[m],errors='raise').to_numpy(dtype=float)
-                if not np.isfinite(x).all():raise ValueError(f'Nonfinite values in {c}/{m}.')
-                rows.append(dict(condition=c,metric=m,mean=float(x.mean()),
-                                 std=float(x.std(ddof=1)) if len(x)>1 else np.nan,n=len(x)))
+        from modules.utils.reporting_utils import aggregate, summary_to_long
+        stats = aggregate(frame, [condition_col], metrics, missing='raise')
+        long = summary_to_long(stats, [condition_col], metrics)
+        long = long.rename(columns={condition_col: 'condition'})
+        # Preserve caller-selected condition order and metric order.
+        rows = long.set_index(['condition', 'metric']).loc[
+            [(c, m) for c in order for m in metrics]].reset_index().to_dict('records')
     result=pd.DataFrame(rows)
     if not np.isfinite(result['mean']).all() or not np.isfinite(result.n).all() or (result.n<1).any() or (result.n%1!=0).any():
         raise ValueError('Invalid summary means or run counts.')
