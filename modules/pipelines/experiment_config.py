@@ -2,6 +2,7 @@
 from pathlib import Path
 import re
 import yaml
+import math
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -21,7 +22,7 @@ def read_config(path):
     dataset.setdefault('kwargs',{})
     if not isinstance(dataset['kwargs'],dict):
         raise ValueError('dataset.kwargs must be a mapping')
-    allowed = {'split','loader','model','optimizer','train','n_models','append_protected_to_predictor','device'}
+    allowed = {'split','loader','model','optimizer','train','n_models','append_protected_to_predictor','store_member_probs','device'}
     pipeline = cfg['pipeline']
     if not isinstance(pipeline,dict) or set(pipeline)-allowed:
         raise ValueError('Unknown pipeline configuration keys')
@@ -35,18 +36,7 @@ def read_config(path):
     for key, permitted in fields.items():
         if key in pipeline and (not isinstance(pipeline[key],dict) or set(pipeline[key])-permitted):
             raise ValueError(f'Unknown {key} settings')
-    for section, keys in {'loader':('batch_size','eval_batch_size'), 'train':('epochs','patience')}.items():
-        for key in keys:
-            value = pipeline.get(section,{}).get(key)
-            if value is not None and (type(value) is not int or value < 1):
-                raise ValueError(f'{section}.{key} must be a positive integer')
-    for section,key in [('model','dropout'),('train','threshold')]:
-        value = pipeline.get(section,{}).get(key)
-        if value is not None and not 0 <= value < 1:
-            raise ValueError(f'{section}.{key} must be in [0,1)')
-    split = pipeline.get('split',{})
-    if any(not 0 < split[k] < 1 for k in ('test_size','val_size') if k in split):
-        raise ValueError('split fractions must be in (0,1)')
+    validate_pipeline_options(pipeline)
     if not isinstance(cfg['output'],str) or Path(cfg['output']).is_absolute():
         raise ValueError('output must be relative to the repository')
     output = (ROOT/cfg['output']).resolve()
@@ -60,13 +50,13 @@ def read_config(path):
         if 'seed' in overrides or 'seed' in dataset['kwargs']:
             raise ValueError('Use data_seeds rather than seed in dataset kwargs')
         if dataset['name'] == 'synthetic_data':
-            from modules.data.synthetic_data import generate
-            generate(**dict(dataset['kwargs'], **overrides), seed=seeds[0])
+            from modules.data.synthetic_data import validate_generation_options
+            validate_generation_options(**dict(dataset['kwargs'], **overrides), seed=seeds[0])
     audit = cfg.setdefault('audit',{})
-    if not isinstance(audit,dict) or set(audit)-{'enabled','alpha','interaction_weights','fairness','distribution'}:
-        raise ValueError('Unknown audit settings')
-    if not 0 < audit.get('alpha',.05) < 1:
-        raise ValueError('audit.alpha must be in (0,1)')
+    if not isinstance(audit, dict):
+        raise ValueError('audit must be a mapping')
+    from modules.pipelines.audit_pipeline import AuditConfig
+    AuditConfig.from_mapping(audit)
     return cfg, output
 
 
@@ -84,3 +74,54 @@ def pipeline_config(cfg, kwargs, seed, data_seed=0):
     options.setdefault('append_protected_to_predictor',False)
     return PipelineConfig(dataset_name=cfg['dataset']['name'], dataset_kwargs=kwargs,
                           split=split, model_seed=seed, **options)
+
+
+def validate_training_options(options):
+    """Shared validation for TrainConfig and YAML; patience=0 stops on first non-improvement."""
+    for key, minimum in (('epochs', 1), ('patience', 0)):
+        value = options.get(key, 50 if key == 'epochs' else 5)
+        if type(value) is not int or value < minimum:
+            raise ValueError(f'train.{key} must be an integer >= {minimum}')
+    threshold = options.get('threshold', .5)
+    if not isinstance(threshold, (int, float)) or not math.isfinite(threshold) or not 0 <= threshold <= 1:
+        raise ValueError('train.threshold must be in [0, 1]')
+    clip = options.get('grad_clip_norm')
+    if clip is not None and (not isinstance(clip, (int, float)) or not math.isfinite(clip) or clip <= 0):
+        raise ValueError('train.grad_clip_norm must be finite and positive')
+    for key in ('binary', 'restore_best', 'verbose'):
+        if key in options and type(options[key]) is not bool:
+            raise ValueError(f'train.{key} must be boolean')
+
+
+def validate_pipeline_options(options):
+    validate_training_options(options.get('train', {}))
+    n = options.get('n_models', 5)
+    if type(n) is not int or n < 1:
+        raise ValueError('n_models must be a positive integer')
+    for key in ('append_protected_to_predictor', 'store_member_probs'):
+        if key in options and type(options[key]) is not bool:
+            raise ValueError(f'{key} must be boolean')
+    loader = options.get('loader', {})
+    for key in ('batch_size', 'eval_batch_size'):
+        if key in loader and (type(loader[key]) is not int or loader[key] < 1):
+            raise ValueError(f'loader.{key} must be a positive integer')
+    if 'shuffle_train' in loader and type(loader['shuffle_train']) is not bool:
+        raise ValueError('loader.shuffle_train must be boolean')
+    model = options.get('model', {})
+    dropout = model.get('dropout', .2)
+    if not isinstance(dropout, (int, float)) or not math.isfinite(dropout) or not 0 <= dropout < 1:
+        raise ValueError('model.dropout must be in [0, 1)')
+    if 'hidden_dims' in model and (not isinstance(model['hidden_dims'], (list, tuple)) or
+            any(type(n) is not int or n < 1 for n in model['hidden_dims'])):
+        raise ValueError('model.hidden_dims must contain positive integers')
+    optimizer = options.get('optimizer', {})
+    for key, default in (('lr', 1e-3), ('weight_decay', 1e-4)):
+        value = optimizer.get(key, default)
+        if not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0 or (key == 'lr' and value == 0):
+            raise ValueError(f'optimizer.{key} has an invalid value')
+    split = options.get('split', {})
+    for key in ('test_size', 'val_size'):
+        if key in split and (not isinstance(split[key], (int, float)) or not 0 < split[key] < 1):
+            raise ValueError('split fractions must be in (0, 1)')
+    if split.get('rare_group_policy') not in (None, 'train_only'):
+        raise ValueError('rare_group_policy must be null or train_only')

@@ -21,8 +21,7 @@ class RegularizerContext:
     global_step: int
     fair_loader: Optional[torch.utils.data.DataLoader] = None
     extras: Mapping[str, Any] = field(default_factory=dict)
-
-    
+        
 class CompositeLoss(nn.Module):
     """
     Combines supervised task loss with an optional regularizer.

@@ -10,27 +10,21 @@ def _json(path):
 
 
 def statistics(frame, keys, metrics):
-    rows=[]
-    for identity,part in frame.groupby(keys,dropna=False,sort=True):
-        if not isinstance(identity,tuple): identity=(identity,)
-        row=dict(zip(keys,identity)); row['runs']=len(part)
-        for m in metrics:
-            values=pd.to_numeric(part[m],errors='raise')
-            row[m+'_n']=int(values.notna().sum())
-            row[m+'_mean']=values.mean()
-            row[m+'_std']=values.std(ddof=1)
-        rows.append(row)
-    return pd.DataFrame(rows)
+    from modules.utils.reporting_utils import aggregate
+    numeric = frame.copy()
+    for metric in metrics:
+        numeric[metric] = pd.to_numeric(numeric[metric], errors='raise')
+    return aggregate(numeric, keys, metrics)
 
 
 def report(folder, out=None):
-    from modules.reporting.synthetic_report import latex_table
+    from modules.utils.reporting_utils import latex_table, completed_runs
     folder = Path(folder)
     output = Path(out) if out else folder/'report'
     if output.resolve().is_relative_to((folder/'runs').resolve()):
         raise ValueError('Report destination must not be inside the training runs')
     runs=[]; groups=[]; pairs=[]; coverages=[]
-    for run in sorted((folder/'runs').glob('*/seed_*')):
+    for run in completed_runs(folder):
         if not (run/'COMPLETE').exists(): 
             continue
         identity=dict(condition=run.parent.name,seed=int(run.name.removeprefix('seed_')))

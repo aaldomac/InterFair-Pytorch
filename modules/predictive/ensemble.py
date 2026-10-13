@@ -8,7 +8,7 @@ import torch.nn as nn
 
 
 from modules.utils.tensor_utils import DeviceLike, _as_tensor, _default_device
-from .metrics import entropy, logits_to_probs
+from .metrics import entropy, logits_to_probs, probs_to_labels
 
 @torch.no_grad()
 def evaluate_ensemble(
@@ -17,9 +17,14 @@ def evaluate_ensemble(
     *,
     binary: bool,
     device: Optional[DeviceLike] = None, 
+    threshold: float = 0.5,
+    store_member_probs: bool = True
 ) -> dict[str, np.ndarray]:
-    """
-    Evaluate an ensemble for binary or multiclass classification.
+    """Predict each batch once per member, with optional [M,N,C] storage.
+
+    All members see exactly the same input batch. Without member storage,
+    retained probability arrays require O(N*C) rather than O(M*N*C) memory.
+    Callers aligning outputs to an external table must use an ordered loader.
 
     Returns arrays with:
         mean_probs: [N, C]
@@ -28,44 +33,36 @@ def evaluate_ensemble(
         aleatoric_uncertainty: [N]
         epistemic_uncertainty: [N]
     """
-    if len(models) == 0:
-        raise ValueError("At least one model is required for ensemble evaluation.")
-    
+    if not models:
+        raise ValueError('At least one model is required for ensemble evaluation.')
     device_t = torch.device(device if device is not None else _default_device())
-    all_models_probs: list[torch.Tensor] = []
-
     for model in models:
-        model = model.to(device_t)
-        model.eval()
-
-        model_probs: list[torch.Tensor] = []
-        for batch in loader:
-            if len(batch) < 1:
-                raise ValueError("Expected batch to contain at least features.")
-            x = _as_tensor(batch[0], dtype=torch.float32, device=device_t, name="x_batch")
-            logits = model(x)
-            probs = logits_to_probs(logits, binary=binary)
-            model_probs.append(probs.detach().cpu())
-
-        if len(model_probs) == 0:
-            raise ValueError("No batches found in the dataloader; cannot evaluate ensemble.")
-        
-        all_models_probs.append(torch.cat(model_probs, dim=0))
-
-    # [M, N, C] where M is number of models, N is number of samples, C is number of classes
-    ensemble_probs = torch.stack(all_models_probs, dim=0)
-    mean_probs = ensemble_probs.mean(dim=0)
-
-    predictive_entropy = entropy(mean_probs)
-    aleatoric_uncertainty = entropy(ensemble_probs).mean(dim=0)
-    epistemic_uncertainty = predictive_entropy -  aleatoric_uncertainty
-    predictions = mean_probs.argmax(dim=1)
-
-    return {
-        "ensemble_probs": ensemble_probs.numpy(),
-        "mean_probs": mean_probs.numpy(),
-        "predictions": predictions.numpy(),
-        "predictive_entropy": predictive_entropy.numpy(),
-        "aleatoric_uncertainty": aleatoric_uncertainty.numpy(),
-        "epistemic_uncertainty": epistemic_uncertainty.numpy(),
-    }
+        model.to(device_t).eval()
+    means, aleatorics = [], []
+    member_batches = [[] for _ in models] if store_member_probs else None
+    for batch in loader:
+        if not len(batch):
+            raise ValueError('Expected batch to contain at least features.')
+        x = _as_tensor(batch[0], dtype=torch.float32, device=device_t, name='x_batch')
+        prob_sum = entropy_sum = None
+        for index, model in enumerate(models):
+            probs = logits_to_probs(model(x), binary=binary).detach().cpu()
+            member_entropy = entropy(probs)
+            prob_sum = probs.clone() if prob_sum is None else prob_sum + probs
+            entropy_sum = member_entropy if entropy_sum is None else entropy_sum + member_entropy
+            if member_batches is not None:
+                member_batches[index].append(probs)
+        means.append(prob_sum / len(models))
+        aleatorics.append(entropy_sum / len(models))
+    if not means:
+        raise ValueError('No batches found in the dataloader; cannot evaluate ensemble.')
+    mean_probs = torch.cat(means)
+    aleatoric = torch.cat(aleatorics)
+    total = entropy(mean_probs)
+    result = dict(mean_probs=mean_probs.numpy(),
+                  predictions=probs_to_labels(mean_probs, binary=binary, threshold=threshold).numpy(),
+                  predictive_entropy=total.numpy(), aleatoric_uncertainty=aleatoric.numpy(),
+                  epistemic_uncertainty=(total-aleatoric).numpy())
+    if member_batches is not None:
+        result['ensemble_probs'] = torch.stack([torch.cat(parts) for parts in member_batches]).numpy()
+    return result

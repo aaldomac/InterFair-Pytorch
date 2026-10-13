@@ -45,15 +45,13 @@ def read_results(source):
     if source.is_file():
         return pd.read_csv(source,dtype={'condition':str,'group':str,'scenario':str})
     if (source/'runs').is_dir():
-        files = sorted(p for p in (source/'runs').glob('*/*/summary.csv')
-                       if (p.parent/'COMPLETE').exists())
-        if not files:
-            raise ValueError('No completed runs found')
-        frame = pd.concat([pd.read_csv(p) for p in files], ignore_index=True)
+        from modules.utils.reporting_utils import read_run_summaries
+        frame = read_run_summaries(source)
         frame = frame.rename(columns={'data_seed':'seed'})
         if 'hidden_normalized' in frame:
             frame['F_hidden'] = frame['hidden_normalized']
         return frame
+    # TODO: Consider if csv file should be /all_runs.csv
     if (source/'runs.csv').is_file():
         return pd.read_csv(source/'runs.csv',dtype={'condition':str})
     raise ValueError('Use an experiment root, report directory, or a CSV file.')

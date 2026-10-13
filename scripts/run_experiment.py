@@ -58,16 +58,9 @@ def main():
             from modules.pipelines.experiment_pipeline import run_experiment
             config = pipeline_config(cfg, kwargs, model_seed, data_seed=seed)
             result = run_experiment(config,out=dest,audit_config=cfg['audit'])
-            row = dict(condition=name, data_seed=seed, model_seed_start=model_seed,
-                       **result['predictive_metrics'])
-            row.update(result['additional_metrics'].get('classical_summary', {}))
-            audit = result['uncertainty_audit']
-            if audit is not None:
-                row.update(audit['maxima'], F_U_int=audit['F_U_int'])
-                if audit['interaction'] is not None:
-                    row.update(zip(['I_alea','I_epis','I_tot'],audit['interaction']))
-            with (dest/'summary.csv').open('w',newline='') as f:
-                writer=csv.DictWriter(f,fieldnames=list(row)); writer.writeheader(); writer.writerow(row)
+            from modules.utils.saving_utils import save_run_summary
+            save_run_summary(dest, result, dict(condition=name, data_seed=seed,
+                                                model_seed_start=model_seed))
         (dest/'experiment.yaml').write_text(yaml.safe_dump(cfg,sort_keys=False))
         (dest/'resolved_run.yaml').write_text(yaml.safe_dump(dict(condition=name,
             data_seed=seed, model_seed=model_seed, dataset_kwargs=kwargs),sort_keys=False))

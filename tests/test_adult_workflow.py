@@ -51,6 +51,8 @@ class AdultWorkflowTests(unittest.TestCase):
             cfg['pipeline']['n_models']=1
             cfg['pipeline']['model']['hidden_dims']=[8]
             kwargs=dict(cfg['dataset']['kwargs'],csv_path=str(path))
+            # Preserve Other as its own group: binary race merges it with Black.
+            kwargs['binary_attrs'] = False
             config=pipeline_config(cfg,kwargs,1000,data_seed=0)
             dest=folder/'runs/baseline/seed_0'
             r=run_experiment(config,out=dest,audit_config=cfg['audit'])

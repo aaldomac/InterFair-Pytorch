@@ -53,6 +53,7 @@ def get_spec():
         drop_feature_cols=('split', 'row_id', 'y_clean', 'p_true', 'U_true'),
     )
 
+
 def load_dataset(*, folder=None, **generation_kwargs):
     """Return your LoadedDataset with fixed splits in metadata['split_indices'].
 
@@ -98,6 +99,7 @@ def load_dataset(*, folder=None, **generation_kwargs):
                          group_id={g: i for i, g in enumerate(GROUPS)},
                          pg_table=pg_table, pg=pg, metadata=meta)
 
+
 def save_prepared_dataset(prepared, folder):
     """Save raw splits plus preprocessing using your saving_utils conventions.
 
@@ -124,3 +126,41 @@ def save_prepared_dataset(prepared, folder):
     save_split_indices(idx['train'], idx['validation'], idx['audit'], folder / 'splits')
     np.save(folder / 'splits' / 'reference_idx.npy', idx['reference'])
     return folder
+
+
+def validate_generation_options(*, seed=0, folder=None, **options):
+    """Validate scalar parameters without drawing data or fitting stripe geometry.
+
+    Data-dependent checks (group coverage and nondegenerate geometry) still run
+    when generation occurs. A folder adapter accepts no generation overrides.
+    """
+    import inspect
+    from modules.data.synthetic_generators.loan_data import scenario_config
+    from modules.data.synthetic_generators.uncertainty_conditions import normalize_condition
+    if folder is not None:
+        if options:
+            raise ValueError('Use folder OR generation arguments, not both')
+        return
+    signature = inspect.signature(generate)
+    bound = signature.bind(seed=seed, **options)
+    bound.apply_defaults()
+    values = bound.arguments
+    scenario, legacy = values['scenario'], values['legacy']
+    if not isinstance(scenario, str):
+        raise ValueError('scenario must be a string')
+    uncertainty = values['uncertainty']
+    if not scenario.startswith('loan_'):
+        if scenario not in ('baseline','scarcity','noise','cancellation','additive','interaction','stripe') or uncertainty is not None:
+            raise ValueError(f'Unknown or ambiguous scenario: {scenario}')
+        aliases = {'stripe_half_width':'half_width', 'stripe_slope':'slope',
+                   'stripe_group':'target_group', 'stripe_validation':'validation'}
+        uncertainty = dict(kind=scenario, **{aliases.get(k,k):v for k,v in legacy.items()})
+        scenario = 'loan_no_bias'
+    elif legacy:
+        raise ValueError('Place uncertainty arguments inside the uncertainty mapping')
+    sizes = [values[key] for key in ('train', 'validation', 'audit', 'reference')]
+    if any(type(n) is not int or n < 1 for n in sizes):
+        raise ValueError('All loan split sizes must be positive integer TOTAL counts')
+    scenario_config(scenario, seed=seed, sample_size=sum(sizes[:3]), overrides=values['loan_overrides'])
+    if uncertainty is not None:
+        normalize_condition(uncertainty)

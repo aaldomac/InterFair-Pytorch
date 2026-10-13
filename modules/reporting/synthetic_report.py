@@ -15,6 +15,8 @@ import sys
 import numpy as np
 import pandas as pd
 
+from modules.utils.reporting_utils import latex_escape, mean_std_table, latex_table, aggregate
+
 QUALITY = ['accuracy', 'nll', 'brier']
 DISPARITY = ['F_alea', 'F_epis', 'F_tot', 'F_U', 'hidden_normalized', 'F_U_int']
 GROUPS = ['00', '01', '10', '11']
@@ -95,7 +97,7 @@ def load_results(folder, conditions=None):
                           hoeffding_radius=radii[i])
                 local_groups.append(gr)
             expected_pairs = {f'{a}-{b}' for i,a in enumerate(GROUPS) for b in GROUPS[i+1:]}
-            if set(audit['pairs']) != expected_pairs:
+            if audit.get('pairs_included', True) and set(audit['pairs']) != expected_pairs:
                 raise ValueError('Expected six group pairs')
             local_pairs = []
             for pair, metrics in audit['pairs'].items():
@@ -114,50 +116,7 @@ def load_results(folder, conditions=None):
         raise ValueError(f'Conditions not found: {sorted(set(conditions)-found)}')
     if not runs:
         raise ValueError('No completed runs found under folder/runs/<condition>/seed_*')
-    return pd.DataFrame(runs), pd.DataFrame(groups), pd.DataFrame(pairs), skipped
-
-
-def aggregate(frame, keys, metrics):
-    """One equally weighted observation per run; never pool audit individuals."""
-    rows=[]
-    for identity, part in frame.groupby(keys, sort=True, dropna=False):
-        if not isinstance(identity, tuple):
-            identity=(identity,)
-        row=dict(zip(keys,identity))
-        row['runs']=len(part)
-        for metric in metrics:
-            row[metric+'_n']=int(part[metric].notna().sum())
-            row[metric+'_mean']=part[metric].mean()
-            row[metric+'_std']=part[metric].std(ddof=1)
-        rows.append(row)
-    return pd.DataFrame(rows)
-
-
-def mean_std_table(stats, keys, metrics, digits):
-    out=stats[keys+['runs']].copy()
-    for m in metrics:
-        out[m]=[f'{mean:.{digits}f} ± {sd:.{digits}f}' if pd.notna(sd)
-                else f'{mean:.{digits}f} ± NA'
-                for mean,sd in zip(stats[m+'_mean'],stats[m+'_std'])]
-    return out
-
-
-def latex_escape(value):
-    mapping={'\\':r'\textbackslash{}','&':r'\&','%':r'\%','$':r'\$',
-             '#':r'\#','_':r'\_','{':r'\{','}':r'\}','~':r'\textasciitilde{}',
-             '^':r'\textasciicircum{}','±':r'$\pm$'}
-    return ''.join(mapping.get(ch,ch) for ch in str(value))
-
-
-def latex_table(frame):
-    """Small booktabs tabular; escape user labels without a Jinja2 dependency."""
-    lines=[r'% Mean +/- sample SD across runs; NA = SD undefined for one run.',
-           r'\begin{tabular}{'+'l'*len(frame.columns)+'}',r'\toprule',
-           ' & '.join(latex_escape(x) for x in frame.columns)+r' \\', r'\midrule']
-    for row in frame.itertuples(index=False,name=None):
-        lines.append(' & '.join(latex_escape(x) for x in row)+r' \\')
-    lines += [r'\bottomrule',r'\end{tabular}']
-    return '\n'.join(lines)+'\n'
+    return pd.DataFrame(runs), pd.DataFrame(groups), pd.DataFrame(pairs, columns=['condition', 'seed', 'pair']+DISPARITY[:-1]), skipped
 
 
 def build_report(runs, groups, pairs, digits=4, show_pairs=False):
@@ -179,7 +138,9 @@ def build_report(runs, groups, pairs, digits=4, show_pairs=False):
                  or c.endswith(('_epsilon','_max_ratio')) or c in ('TPR_gap','FPR_gap','TNR_gap','PPV_gap','Accuracy_gap','Selection_gap')]
     if classical:
         specs.append(('classical',runs,['condition'],classical))
-    if show_pairs:
+    if pairs.empty:
+        texts.append('Pair tables were omitted at audit time; scalar maxima remain available.')
+    if show_pairs and not pairs.empty:
         specs.append(('pairs',pairs,['condition','pair'],DISPARITY[:-1]))
     for name,frame,keys,metrics in specs:
         stats=aggregate(frame,keys,metrics)

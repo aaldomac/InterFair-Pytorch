@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict, replace
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
@@ -78,6 +78,7 @@ class PipelineConfig:
     model_seed: Optional[int] = None
     n_models: int = 5
     append_protected_to_predictor: bool = False
+    store_member_probs: bool = False
     device: Optional[str] = None
 
 
@@ -196,8 +197,6 @@ def prepare_data(config: PipelineConfig) -> PreparedData:
 
     stratify_col = config.split.stratify or spec.group_col
 
-    if config.build_px_loaders:
-        raise ValueError("build_px_loaders is unsupported; pass a fair_loader explicitly.")
     fixed = loaded.metadata.get("split_indices")
     if fixed is not None:
         names = ("train", "validation", "audit" if "audit" in fixed else "test")
@@ -315,16 +314,7 @@ def build_loss(
 
 
 def _training_config_for_data(config: PipelineConfig, data: PreparedData) -> TrainConfig:
-    # Make sure TrainConfig.binary is synchronized with the inferred/validated task.
-    return TrainConfig(
-        epochs=config.train.epochs,
-        patience=config.train.patience,
-        binary=data.binary,
-        threshold=config.train.threshold,
-        grad_clip_norm=config.train.grad_clip_norm,
-        restore_best=config.train.restore_best,
-        verbose=config.train.verbose,
-    )
+    return replace(config.train, binary=data.binary)
 
 
 # ---------------------------------------------------------------------
@@ -397,92 +387,18 @@ def train_models(
 # ---------------------------------------------------------------------
 # EVALUATION
 # ---------------------------------------------------------------------
-
-@torch.no_grad()
-def evaluate_model(
-    model: nn.Module,
-    data: PreparedData,
-    config: PipelineConfig,
-    loader: Optional[DataLoader] = None,
-) -> Dict[str, float]:
-    model = model.to(torch.device(config.device or ("cuda" if torch.cuda.is_available() else "cpu")))
-    optimizer = build_optimizer(model, config)
-    loss_fn = build_loss(data)
-
-    trainer = PredictiveTrainer(
-        model=model,
-        optimizer=optimizer,
-        loss_fn=loss_fn,
-        config=_training_config_for_data(config, data),
-        device=config.device,
-    )
-
-    return trainer.evaluate(loader or data.test_loader)
-
-
-@torch.no_grad()
-def evaluate_group_metrics(
-    model: nn.Module,
-    data: PreparedData,
-    config: PipelineConfig,
-    loader: Optional[DataLoader] = None,
-) -> pd.DataFrame:
-    """Compute group-wise accuracy and support from a loader containing `(X, y, g)`."""
-    device = torch.device(config.device or ("cuda" if torch.cuda.is_available() else "cpu"))
-    model = model.to(device)
-    model.eval()
-
-    group_correct: Dict[int, int] = {}
-    group_total: Dict[int, int] = {}
-    group_mix_entropy: Dict[int, float] = {}
-
-    for x, y, g in loader or data.test_loader:
-        x = x.to(device)
-        y = y.to(device)
-        g = g.to(device)
-
-        logits = model(x)
-        probs = logits_to_probs(logits, binary=data.binary)
-        preds = probs_to_labels(probs, binary=data.binary, threshold=config.train.threshold)
-
-        correct = (preds == y.long().view(-1)).long()
-
-        for group_id in g.unique().tolist():
-            mask = g == group_id
-            gid = int(group_id)
-            group_correct[gid] = group_correct.get(gid, 0) + int(correct[mask].sum().item())
-            group_total[gid] = group_total.get(gid, 0) + int(mask.sum().item())
-            # TODO: The next line is incorrect. It occurs inside the batch loop, so it overwrites the previous value.
-            # Consequently, the saved value describes the last batch containing that group, rather than the whole group.
-            # We should move the computation of U_mix to ensemble evaluation
-            group_mix_entropy[gid] = entropy(probs[mask].mean(dim=0))
-
-    rows = []
-    id_to_group = {}
-    if data.spec.group_col in data.loaded.df.columns and data.spec.group_id_col in data.loaded.df.columns:
-        id_to_group = (
-            data.loaded.df[[data.spec.group_id_col, data.spec.group_col]]
-            .drop_duplicates()
-            .set_index(data.spec.group_id_col)[data.spec.group_col]
-            .astype(str)
-            .to_dict()
-        )
-
-    for gid in sorted(group_total):
-        total = group_total[gid]
-        correct = group_correct.get(gid, 0)
-        mix_entropy = group_mix_entropy.get(gid, np.nan)
-        rows.append(
-            {
-                "group_id": gid,
-                "group": id_to_group.get(gid, str(gid)),
-                "support": total,
-                "accuracy": correct / total if total > 0 else np.nan,
-                "group_mix_entropy": mix_entropy.cpu().numpy(),
-            }
-        )
-
-    return pd.DataFrame(rows).sort_values("accuracy", ascending=True).reset_index(drop=True)
+def _group_metrics_from_outputs(outputs, labels, groups, data, config):
+    from modules.metrics.ensemble_quality import ensemble_quality
+    from modules.metrics.distribution_decomposition_metrics import group_entropy_decompositions
+    names = {int(g): str(name) for name, g in data.loaded.group_id.items()}
+    _, frame = ensemble_quality(outputs, labels, groups, binary=data.binary,
+        threshold=config.train.threshold, group_names=names)
+    decompositions = group_entropy_decompositions(outputs['mean_probs'], groups)
+    frame['group_mix_entropy'] = frame['group_id'].map(
+        {g: dec.entropy_of_mean for g, dec in decompositions.items()})
+    frame['group_het_entropy'] = frame['group_id'].map(
+        {g: dec.entropy_of_mean-dec.mean_entropy for g, dec in decompositions.items()})
+    return frame.sort_values('group_id').reset_index(drop=True)
 
 
 def evaluate_models(
@@ -493,20 +409,17 @@ def evaluate_models(
     if len(models) == 0:
         raise ValueError("At least one trained model is required for evaluation.")
 
-    # Main scalar metrics use the first model. If `n_models > 1`, ensemble metrics are computed separately.
-    test_metrics = evaluate_model(models[0], data, config, data.test_loader)
-    group_metrics = evaluate_group_metrics(models[0], data, config, data.test_loader)
-
-    ensemble_metrics = None
-    if len(models) >= 1:
-        ensemble_metrics = evaluate_ensemble(
-            models,
-            data.test_loader,
-            binary=data.binary,
-            device=config.device,
-        )
-
-    return test_metrics, group_metrics, ensemble_metrics
+    from modules.metrics.ensemble_quality import ensemble_quality
+    outputs = evaluate_ensemble(models, data.test_loader, binary=data.binary,
+        device=config.device, threshold=config.train.threshold,
+        store_member_probs=config.store_member_probs)
+    labels = data.test_df[data.spec.label_col].to_numpy(dtype=int)
+    groups = data.test_df[data.spec.group_id_col].to_numpy(dtype=int)
+    metrics, _ = ensemble_quality(outputs, labels, groups, threshold=config.train.threshold, binary=data.binary)
+    # Keep the loss key for older callers; evaluation loss is ensemble NLL.
+    metrics['loss'] = metrics['nll']
+    group_metrics = _group_metrics_from_outputs(outputs, labels, groups, data, config)
+    return metrics, group_metrics, outputs
 
 
 # ---------------------------------------------------------------------
@@ -533,6 +446,11 @@ def run_predictive_pipeline(
     Regularizers require an explicit fair_loader. Synthetic fixed splits are
     respected; image adapters use their official partitions.
     """
+    from modules.pipelines.experiment_config import validate_pipeline_options
+    validate_pipeline_options({key: value for key, value in asdict(config).items()
+                               if key in ('split', 'loader', 'model', 'optimizer', 'train',
+                                          'n_models', 'append_protected_to_predictor', 'store_member_probs')})
+    
     data = prepare_data(config)
 
     if regularizer is not None and fair_loader is None:

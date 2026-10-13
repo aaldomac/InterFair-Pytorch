@@ -364,8 +364,8 @@ def summarize_label_by_group(dataset: CelebAAttributeDataset) -> List[Dict[str, 
 def prepare_image_data(config):
     """Bridge image datasets into the shared trainer's (x, y, group) contract.
         Function used in the train_predictive_pipeline to prepare CelebA data for training and evaluation."""
-    if config.append_protected_to_predictor or config.build_px_loaders:
-        raise ValueError('CelebA images require append_protected_to_predictor=false and build_px_loaders=false')
+    if config.append_protected_to_predictor:
+        raise ValueError('CelebA images require append_protected_to_predictor=false')
     datasets = build_celeba_datasets(CelebAConfig(**dict(config.dataset_kwargs)))
     frames, offset, splits = [], 0, {}
     for name, ds in zip(('train','validation','test'), datasets):

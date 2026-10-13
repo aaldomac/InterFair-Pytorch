@@ -43,18 +43,6 @@ class PairwiseFairnessResult:
     per_group_values: Optional[torch.Tensor] = None
 
 
-@dataclass
-class SubgroupFairnessResult:
-    """Container for subgroup-vs-population fairness metrics."""
-
-    aggregate: float
-    values: torch.Tensor
-    groups: torch.Tensor
-    global_value: float
-    group_values: torch.Tensor
-    group_probs: torch.Tensor
-
-
 # ==================================================
 # Generic helpers
 # ==================================================

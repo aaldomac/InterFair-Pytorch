@@ -3,7 +3,7 @@ import numpy as np
 from typing import Dict, List, Union
 
 def audit_uncertainties(ensemble: Dict[str, np.ndarray], groups: Union[List, np.ndarray], alpha=.05, *, group_names=None,
-                        interaction_weights=None, num_classes=None):
+                        interaction_weights=None, num_classes=None, include_pairs=True):
     """Audit disparities in aleatoric, epistemic, and total predictive uncertainty across groups.
     Args:
         ensemble: Dictionary of row-aligned ensemble results, including keys 'ensemble_probs', 'mean_probs', 'predictions', 'aleatoric_uncertainty', 'epistemic_uncertainty', and 'predictive_entropy'.
@@ -33,16 +33,25 @@ def audit_uncertainties(ensemble: Dict[str, np.ndarray], groups: Union[List, np.
     names = [str(group_names.get(int(g), g)) if group_names else str(g) for g in ids]
     if len(set(names)) != len(names):
         raise ValueError('Group names must be unique.')
-    counts = np.array([(groups == g).sum() for g in ids])
-    means = np.array([u[groups == g].mean(axis=0) for g in ids])  # shape: (n_groups, 3) -> [mean U ale, mean U epi, mean U tot] per group
+    _, inverse, counts = np.unique(groups, return_inverse=True, return_counts=True)
+    sums = np.zeros((len(ids), 3), dtype=float)
+    np.add.at(sums, inverse, u)
+    # counts = np.array([(groups == g).sum() for g in ids])
+    # means = np.array([u[groups == g].mean(axis=0) for g in ids])  # shape: (n_groups, 3) -> [mean U ale, mean U epi, mean U tot] per group
+    means = sums / counts[:, None]  # shape: (n_groups, 3) -> [mean U ale, mean U epi, mean U tot] per group
     pairs = {}
+    maxima = dict(F_alea=0., F_epis=0., F_tot=0., F_U=0., hidden_normalized=0.)
     for a in range(len(ids)):
         for b in range(a+1, len(ids)):
             da, de, dt = means[a] - means[b]
-            pairs[f'{names[a]}-{names[b]}'] = dict(
+            values = dict(
                 F_alea=float(abs(da)), F_epis=float(abs(de)), F_tot=float(abs(dt)),
                 F_U=float(max(abs(da), abs(de))/bound),
                 hidden_normalized=float(max(0., abs(da)+abs(de)-abs(dt))/(2*bound)))
+            for key, value in values.items():
+                maxima[key] = max(maxima[key], value)
+            if include_pairs:
+                pairs[f'{names[a]}-{names[b]}'] = values
     interaction, f_int = None, None
     if interaction_weights is not None:
         weights = {str(k): float(v) for k, v in interaction_weights.items()}
@@ -57,7 +66,7 @@ def audit_uncertainties(ensemble: Dict[str, np.ndarray], groups: Union[List, np.
         f_int = float(np.max(np.abs(contrast[:2]))/(scale*bound))  # takes the max. between I_ale and I_epis and then normalizes
     return dict(component_order=['alea','epis','tot'], group_ids=ids.tolist(),
                 group_order=names, means=means.tolist(), counts=counts.tolist(), pairs=pairs,
-                maxima={k:max(p[k] for p in pairs.values()) for k in next(iter(pairs.values()))},
+                maxima=maxima, pairs_included=bool(include_pairs),
                 interaction=interaction, F_U_int=f_int, alpha=alpha,
                 entropy_units='nats', normalization=bound,
                 # Union bound for TWO independent components per group; total is their sum.

@@ -41,16 +41,6 @@ def probs_to_labels(probs: torch.Tensor, *, threshold: float = 0.5, binary: bool
         raise ValueError(f"Expected multi-class probabilities of shape (B, num_classes), got {tuple(probs.shape)}")
     return torch.argmax(probs, dim=1)
 
-def accuracy_from_logits(
-        logits: torch.Tensor,
-        targets: torch.Tensor,
-        *,
-        binary: bool,
-        threshold: float = 0.5,
-) -> float:
-    probs = logits_to_probs(logits, binary=binary)
-    preds = probs_to_labels(probs, threshold=threshold, binary=binary)
-    return float((preds == targets.long().view(-1)).float().mean().item())
 
 def entropy(probs: torch.Tensor, eps: float = 1e-10) -> torch.Tensor:
     return -(probs * torch.log(probs.clamp_min(eps))).sum(dim=-1)

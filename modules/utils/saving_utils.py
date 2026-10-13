@@ -231,7 +231,8 @@ def save_experiment_config(
 
 def save_results_dict(
     results_dict: Mapping[str, Any], 
-    results_folder: PathLike
+    results_folder: PathLike,
+    *, legacy_formats: bool = False
 ) -> None:
     """
     Save each item in results_dict into results_folder.
@@ -358,6 +359,7 @@ def save_preprocessing_artifacts(
     folder: PathLike,
     name: str = "preprocessing",
     save_joblib: bool = True,
+    legacy_formats: bool = False,
 ) -> None:
     """
     Save preprocessing artifacts needed to inspect or reconstruct preprocessing.
@@ -374,7 +376,7 @@ def save_preprocessing_artifacts(
     ohe = schema.get("ohe")
 
     artifacts: Dict[str, Any] = {
-        "schema_type": "predictor" if "ohe" in schema else "px",
+        "schema_type": "predictor" if "ohe" in schema else None,
         "feature_cols": list(schema.get("feature_cols", [])),
         "cat_cols": list(schema.get("cat_cols", [])),
         "cont_cols": list(schema.get("cont_cols", [])),
@@ -388,7 +390,8 @@ def save_preprocessing_artifacts(
     }
 
     _json_dump(artifacts, folder_path / f"{name}.json")
-    np.save(folder_path / f"{name}.npy", _jsonable(artifacts), allow_pickle=True)
+    if legacy_formats:
+        np.save(folder_path / f"{name}.npy", _jsonable(artifacts), allow_pickle=True)
 
     if save_joblib:
         joblib.dump(dict(schema), folder_path / f"{name}_schema.joblib")
@@ -580,40 +583,6 @@ def save_full_experiment(
 # }
 
 
-
-def save_full_reproducibility_bundle(
-    experiment_folder: PathLike,
-    config: Mapping[str, Any] | Any,
-    schema: Mapping[str, Any],
-    train_idx: Optional[Sequence[int]] = None,
-    val_idx: Optional[Sequence[int]] = None,
-    test_idx: Optional[Sequence[int]] = None,
-    model_metadata: Optional[Mapping[str, Any]] = None,
-    histories: Optional[Mapping[str, Sequence[Any]] | Sequence[Mapping[str, Sequence[Any]]]] = None,
-    data_info: Optional[Mapping[str, Any]] = None,
-) -> None:
-    """Save the main reproducibility artifacts for an experiment."""
-    experiment_path = _ensure_dir(experiment_folder)
-
-    save_experiment_config(config, experiment_path)
-    save_all_preprocessing_artifacts(schema, experiment_path / "preprocessing")
-
-    if train_idx is not None and val_idx is not None and test_idx is not None:
-        save_split_indices(train_idx, val_idx, test_idx, experiment_path / "splits")
-
-    if model_metadata is not None:
-        save_model_metadata(experiment_path / "models", model_metadata)
-
-    save_rng_states(experiment_path / "rng")
-    save_environment_info(experiment_path / "environment")
-
-    if histories is not None:
-        save_training_histories(histories, experiment_path / "histories")
-
-    if data_info is not None:
-        _ensure_dir(experiment_path / "data")
-        _json_dump(dict(data_info), experiment_path / "data" / "data_info.json")
-
 # ---------------------------------------------------------------------
 # PIPELINE-RESULT SAVING
 # ---------------------------------------------------------------------
@@ -672,17 +641,16 @@ def save_pipeline_result(
     )
 
 
-def save_audited_result(result, out, audit, predictive_metrics, group_metrics, additional):
+def save_audited_result(result, out, audit, predictive_metrics, group_metrics, additional,
+                        *, audit_inputs=None, audit_config=None):
     """Save shared artifacts and optional synthetic oracle data through one writer."""
     output = save_pipeline_result(result, exact_path=out)
+    if audit_inputs is None:
+        from modules.pipelines.audit_pipeline import audit_inputs_from_result
+        audit_inputs = audit_inputs_from_result(result)
+    save_audit_bundle(output, dict(uncertainty_audit=audit, predictive_metrics=predictive_metrics,
+        group_predictive_metrics=group_metrics, additional_metrics=additional), audit_inputs, audit_config)
     folder = output / 'audit'
-    folder.mkdir()
-    if audit is not None:
-        _json_dump(audit, folder / 'uncertainty_audit.json')
-    _json_dump(predictive_metrics, folder / 'predictive_metrics.json')
-    group_metrics.to_csv(folder / 'group_predictive_metrics.csv', index=False)
-    for name, value in additional.items():
-        _json_dump(value, folder / f'{name}.json')
     data = result.data
     coverage = []
     for name, gid in data.loaded.group_id.items():
@@ -708,3 +676,60 @@ def save_audited_result(result, out, audit, predictive_metrics, group_metrics, a
         save_prepared_dataset(dict(loaded=data.loaded, frames=frames,
             predictor_schema=data.predictor_schema), output / 'synthetic_data')
     return output
+
+
+def save_audit_bundle(output, audited, inputs, config=None, *, source_run=None):
+    """Write the same audit layout for training and post-hoc evaluation."""
+    from modules.pipelines.audit_pipeline import AuditConfig, AUDIT_SCHEMA_VERSION
+    folder = Path(output)/'audit'
+    folder.mkdir(parents=True, exist_ok=False)
+    options = AuditConfig.from_mapping(config)
+    if audited['uncertainty_audit'] is not None:
+        _json_dump(audited['uncertainty_audit'], folder/'uncertainty_audit.json')
+    _json_dump(audited['predictive_metrics'], folder/'predictive_metrics.json')
+    audited['group_predictive_metrics'].to_csv(folder/'group_predictive_metrics.csv', index=False)
+    for name, values in audited['additional_metrics'].items():
+        _json_dump(values, folder/f'{name}.json')
+    _json_dump(options, folder/'audit_config.json')
+    context = dict(schema_version=AUDIT_SCHEMA_VERSION, group_names=inputs.group_names,
+                   binary=inputs.binary, threshold=inputs.threshold, num_classes=inputs.num_classes,
+                   metadata=inputs.metadata, provenance=inputs.provenance)
+    if source_run is not None:
+        context['source_run'] = str(Path(source_run).resolve())
+    _json_dump(context, folder/'audit_context.json')
+    arrays = {}
+    if inputs.features is not None:
+        arrays['features'] = inputs.features
+    if inputs.protected is not None:
+        arrays['protected'] = inputs.protected
+    if arrays:
+        np.savez_compressed(folder/'diagnostic_rows.npz', **arrays)
+    np.savez_compressed(folder/'audit_rows.npz', y=inputs.labels, group_id=inputs.groups)
+    import subprocess
+    try:
+        root = Path(__file__).resolve().parents[2]
+        commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root,
+                                        text=True, stderr=subprocess.DEVNULL).strip()
+        dirty = bool(subprocess.check_output(['git', 'status', '--porcelain'], cwd=root, text=True).strip())
+    except (OSError, subprocess.CalledProcessError):
+        commit, dirty = None, None
+    _json_dump(dict(schema_version=AUDIT_SCHEMA_VERSION, source_commit=commit,
+                   source_dirty=dirty, audit_options=options), Path(output)/'artifact_manifest.json')
+    return folder
+
+
+def save_run_summary(folder, audited, identity):
+    """A single summary definition shared by training and re-auditing."""
+    import csv
+    row = dict(identity, **audited['predictive_metrics'])
+    row.update(audited['additional_metrics'].get('classical_summary', {}))
+    audit = audited['uncertainty_audit']
+    if audit is not None:
+        row.update(audit['maxima'], F_U_int=audit['F_U_int'])
+        if audit['interaction'] is not None:
+            row.update(zip(('I_alea', 'I_epis', 'I_tot'), audit['interaction']))
+    with (Path(folder)/'summary.csv').open('w', newline='') as stream:
+        writer = csv.DictWriter(stream, fieldnames=list(row))
+        writer.writeheader()
+        writer.writerow(row)
+    return row

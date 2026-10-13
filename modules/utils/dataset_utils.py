@@ -160,20 +160,6 @@ def _series_to_str_with_na(s: pd.Series, missing_token: str = "NA") -> pd.Series
 # -------------------------------------------------------------
 # TENSOR DATASET HELPERS
 # -------------------------------------------------------------
-def to_tensor_dataset_predictive(X: Any, y: Any) -> TensorDataset:
-    """
-    Build a TensorDataset for predictive modeling.
-
-    Returns:
-        TensorDataset(X, y), with dtypes float32 and long.
-    """
-    X_t = _to_float_tensor(X)
-    y_t = _to_long_tensor(y)
-    if X_t.shape[0] != y_t.shape[0]:
-        raise ValueError("X and y must have the same first dimension.")
-    return TensorDataset(X_t, y_t)
-
-
 def make_loader(dataset: Dataset, batch_size: int, shuffle: bool) -> DataLoader:
     """
     Create a DataLoader from a dataset.
@@ -182,29 +168,7 @@ def make_loader(dataset: Dataset, batch_size: int, shuffle: bool) -> DataLoader:
         raise ValueError("batch_size must be positive.")
     return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, drop_last=False)
 
-# -------------------------------------------------------------
-# TORCH DATASET HELPERS
-# -------------------------------------------------------------
-class TabularDataset(Dataset):
-    """Basic Dataset for named tensors."""
 
-    def __init__(self, **tensors: torch.Tensor) -> None:
-        if len(tensors) == 0:
-            raise ValueError("At least one tensor must be provided.")
-
-        lengths = {name: tensor.shape[0] for name, tensor in tensors.items()}
-        if len(set(lengths.values())) != 1:
-            raise ValueError(f"All tensors must have the same first dimension. Got: {lengths}")
-
-        self.tensors = tensors
-        self.length = next(iter(lengths.values()))
-
-    def __len__(self) -> int:
-        return self.length
-
-    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
-        return {name: tensor[idx] for name, tensor in self.tensors.items()}
-    
 # -------------------------------------------------------------
 # LOAD DATASETS AND PREPROCESSING
 # -------------------------------------------------------------
@@ -268,38 +232,7 @@ def split_df(
     # df_test = df_test.reset_index(drop=True)
 
     return df_train, df_val, df_test
-
-def split_df_with_indices(
-    df: pd.DataFrame, 
-    *,
-    test_size: float=0.25, 
-    val_size: float=0.15, 
-    seed: int=42, 
-    stratify: str="group",
-) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, np.ndarray, np.ndarray, np.ndarray]:
-    """
-    Split a DataFrame into train, validation, and test sets, returning row indices too.
-
-    Note:
-        val_size is applied to the remaining training indices after removing test.
-    """
-    _validate_dataframe(df)
-    _validate_columns_exist(df, [stratify])
-
-    idx = np.arange(len(df))
-
-    train_idx, test_idx = train_test_split(
-        idx, test_size=test_size, random_state=seed, stratify=df[stratify].values
-    )
-    train_idx, val_idx = train_test_split(
-        train_idx, test_size=val_size, random_state=seed, stratify=df.iloc[train_idx][stratify].values
-    )
-
-    df_train = df.iloc[train_idx].copy().reset_index(drop=True)
-    df_val = df.iloc[val_idx].copy().reset_index(drop=True)
-    df_test = df.iloc[test_idx].copy().reset_index(drop=True)
-
-    return df_train, df_val, df_test, train_idx, val_idx, test_idx   
+ 
 
 # -------------------------------------------------------------
 # SCHEMA FIT / TRANSFORM FOR PREDICTOR

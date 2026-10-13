@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import copy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from typing import Any, Optional
 
 import torch
@@ -9,7 +9,8 @@ import torch.nn as nn
 
 from modules.utils.tensor_utils import ArrayLike, DeviceLike, _as_tensor, _default_device
 from .losses import CompositeLoss, RegularizerContext
-from .metrics import accuracy_from_logits, logits_to_probs, probs_to_labels
+from .metrics import logits_to_probs, probs_to_labels
+
 
 @dataclass
 class TrainConfig:
@@ -21,14 +22,8 @@ class TrainConfig:
     restore_best: bool = True
     verbose: bool = True
     def validate(self) -> None:
-        if self.epochs <= 0:
-            raise ValueError("epochs must be positive.")
-        if self.patience < 0:
-            raise ValueError("patience must be non-negative.")
-        if not 0.0 <= self.threshold <= 1.0:
-            raise ValueError("threshold must be in [0, 1].")
-        if self.grad_clip_norm is not None and self.grad_clip_norm <= 0.0:
-            raise ValueError("grad_clip_norm must be positive if specified.")
+        from modules.pipelines.experiment_config import validate_training_options
+        validate_training_options(asdict(self))
         
 @dataclass 
 class History:
@@ -153,15 +148,9 @@ class PredictiveTrainer:
         self.global_step += 1
 
         batch_size = y.view(-1).size(0)
-        correct = int(
-            accuracy_from_logits(
-                logits.detach(),
-                y.detach(),
-                binary=self.config.binary,
-                threshold=self.config.threshold,
-            )
-            * batch_size
-        )
+        preds = probs_to_labels(logits_to_probs(logits.detach(), binary=self.config.binary),
+                                binary=self.config.binary, threshold=self.config.threshold)
+        correct = int((preds == y.long().view(-1)).sum().item())
         return metrics, correct, batch_size
 
     @torch.no_grad()
@@ -189,15 +178,9 @@ class PredictiveTrainer:
 
             batch_size = y.view(-1).size(0)
             total_loss += float(loss.item()) * batch_size
-            correct += int(
-                accuracy_from_logits(
-                    logits,
-                    y,
-                    binary=self.config.binary,
-                    threshold=self.config.threshold,
-                )
-                * batch_size
-            )
+            preds = probs_to_labels(logits_to_probs(logits, binary=self.config.binary),
+                                    binary=self.config.binary, threshold=self.config.threshold)
+            correct += int((preds == y.long().view(-1)).sum().item())
             total_samples += batch_size
 
         return {
