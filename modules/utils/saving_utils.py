@@ -728,6 +728,9 @@ def save_run_summary(folder, audited, identity):
         row.update(audit['maxima'], F_U_int=audit['F_U_int'])
         if audit['interaction'] is not None:
             row.update(zip(('I_alea', 'I_epis', 'I_tot'), audit['interaction']))
+        for key in ('I_mix', 'I_het'):
+            if audit.get(key) is not None:
+                row[key] = audit[key]
     with (Path(folder)/'summary.csv').open('w', newline='') as stream:
         writer = csv.DictWriter(stream, fieldnames=list(row))
         writer.writeheader()

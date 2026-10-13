@@ -4,7 +4,7 @@ from typing import Any, Mapping
 import numpy as np
 
 from modules.metrics.ensemble_quality import ensemble_quality
-from modules.metrics.uncertainty_audit import audit_uncertainties
+from modules.metrics.uncertainty_audit import audit_uncertainties, add_group_entropy_metrics
 
 AUDIT_SCHEMA_VERSION = 2
 
@@ -104,6 +104,7 @@ def run_audit(inputs: AuditInputs, config=None):
         audit['group_mix_entropy'] = {g: dec.entropy_of_mean for g, dec in decompositions.items()}
         audit['group_het_entropy'] = {g: dec.entropy_of_mean-dec.mean_entropy for g, dec in decompositions.items()}
         audit['group_het_definition'] = 'H(mean_x predictive probability) - mean_x H(predictive probability)'
+        audit = add_group_entropy_metrics(audit,interaction_weights=options.interaction_weights,)
         if options.synthetic_diagnostics:
             meta = inputs.metadata
             if 'oracle_entropy_bits' in meta:

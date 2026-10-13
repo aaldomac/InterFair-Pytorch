@@ -72,3 +72,76 @@ def audit_uncertainties(ensemble: Dict[str, np.ndarray], groups: Union[List, np.
                 # Union bound for TWO independent components per group; total is their sum.
                 hoeffding_component_radii=(bound*np.sqrt(np.log(4*len(ids)/alpha)/(2*counts))).tolist(),
                 hoeffding_scope='aleatoric and epistemic group means; iid audit observations, fixed trained model')
+
+
+def add_group_entropy_metrics(audit, *, interaction_weights=None):
+    """Add mixture/heterogeneity disparities and signed interactions.
+
+    Requires group_mix_entropy and group_het_entropy to be populated.
+    All added metrics use nats.
+    """
+    ids = audit['group_ids']
+    names = audit['group_order']
+
+    sources = {
+        'mix': audit['group_mix_entropy'],
+        'het': audit['group_het_entropy'],
+    }
+
+    # Explicit ID alignment; also accepts dictionaries loaded from JSON.
+    values = {}
+    for component, mapping in sources.items():
+        lookup = {str(g): float(value) for g, value in mapping.items()}
+        expected = {str(g) for g in ids}
+
+        if set(lookup) != expected:
+            raise ValueError(
+                f'{component} entropy must cover every audited group exactly.'
+            )
+
+        vector = np.array([lookup[str(g)] for g in ids], dtype=float)
+        if not np.isfinite(vector).all():
+            raise ValueError(f'Nonfinite {component} entropy.')
+
+        values[component] = vector
+
+    weights = None
+    if interaction_weights is not None:
+        lookup = {
+            str(g): float(weight)
+            for g, weight in interaction_weights.items()
+        }
+        if set(lookup) != {str(g) for g in ids}:
+            raise ValueError(
+                'Interaction weights must cover every audited group exactly.'
+            )
+
+        weights = np.array([lookup[str(g)] for g in ids], dtype=float)
+        if (
+            not np.isfinite(weights).all()
+            or not np.isclose(weights.sum(), 0)
+            or np.abs(weights).sum() == 0
+        ):
+            raise ValueError(
+                'Interaction weights must be finite, nonzero and sum to zero.'
+            )
+
+    for component, vector in values.items():
+        metric = f'F_{component}'
+
+        # The largest absolute pairwise difference equals the range.
+        audit['maxima'][metric] = float(vector.max() - vector.min())
+
+        audit[f'I_{component}'] = (
+            float(weights @ vector) if weights is not None else None
+        )
+
+        if audit.get('pairs_included', True):
+            for a in range(len(ids)):
+                for b in range(a + 1, len(ids)):
+                    pair = f'{names[a]}-{names[b]}'
+                    audit['pairs'][pair][metric] = float(
+                        abs(vector[a] - vector[b])
+                    )
+
+    return audit
