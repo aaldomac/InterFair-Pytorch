@@ -31,10 +31,11 @@ import pandas as pd
 ALIASES = {'F_hidden': 'hidden_normalized'}
 LABELS = {
  'F_tot':r'$F_{\mathrm{tot}}$', 'F_alea':r'$F_{\mathrm{alea}}$',
- 'F_epis':r'$F_{\mathrm{epis}}$', 'F_U':r'$F_U$',
+ 'F_epis':r'$F_{\mathrm{epis}}$', 'F_U':r'$F_U$', 'F_mix':r'$F_{\mathrm{mix}}$', 'F_het':r'$F_{\mathrm{het}}$',
  'hidden_normalized':r'$F_{\mathrm{hidden}}$', 'F_U_int':r'$F_{U,\mathrm{int}}$',
  'I_alea':r'$\mathcal{I}_{\mathrm{alea}}$', 'I_epis':r'$\mathcal{I}_{\mathrm{epis}}$',
- 'I_tot':r'$\mathcal{I}_{\mathrm{tot}}$', 'I_oracle':r'$\mathcal{I}_{\mathrm{oracle}}$'}
+ 'I_tot':r'$\mathcal{I}_{\mathrm{tot}}$', 'I_oracle':r'$\mathcal{I}_{\mathrm{oracle}}$',
+ 'I_mix':r'$\mathcal{I}_{\mathrm{mix}}$', 'I_het':r'$\mathcal{I}_{\mathrm{het}}$',}
 NATS = {'F_tot','F_alea','F_epis','I_alea','I_epis','I_tot','I_oracle',
         'alea','epis','tot','oracle','alea_error','delta_alea','delta_epis','delta_tot'}
 DIMENSIONLESS = {'F_U','hidden_normalized','F_U_int'}
@@ -57,7 +58,7 @@ def read_results(source):
     raise ValueError('Use an experiment root, report directory, or a CSV file.')
 
 def summarize_metrics(frame, metrics, *, condition_col='condition', conditions=None, seed_col='seed', input_format='runs'):
-    """Return condition/metric/std/n; each row must be an independent run.
+    """Return condition/metric/std/ci95/n; each row must be an independent run.
 
     For precomputed long summaries select input_format='summary'.
     Missing metrics/conditions or nonfinite means are rejected, not plotted as zero.
@@ -80,15 +81,15 @@ def summarize_metrics(frame, metrics, *, condition_col='condition', conditions=N
     frame=frame[frame[condition_col].isin(order)]
     rows=[]
     if input_format=='summary':
-        if not {'metric','mean','std','n'} <= set(frame):
-            raise ValueError('Long summary requires metric, mean, std, n columns.')
+        if not {'metric','mean','std','ci95','n'} <= set(frame):
+            raise ValueError('Long summary requires metric, mean, std, ci95, n columns.')
         frame['metric']=frame.metric.map(lambda m:ALIASES.get(m,m))
         for c in order:
             for m in metrics:
                 part=frame[(frame[condition_col]==c)&(frame.metric==m)]
                 if len(part)!=1:raise ValueError(f'Need one summary row for {c}/{m}.')
                 r=part.iloc[0]
-                rows.append(dict(condition=c,metric=m,mean=float(r['mean']),std=float(r['std']),n=float(r['n'])))
+                rows.append(dict(condition=c,metric=m,mean=float(r['mean']),std=float(r['std']),ci95=float(r['ci95']),n=float(r['n'])))
     else:
         # Prefer a real user-defined F_hidden column if provided alone; the alias
         # is for this project's normalized hidden-disparity convention only.
@@ -111,9 +112,14 @@ def summarize_metrics(frame, metrics, *, condition_col='condition', conditions=N
         raise ValueError('Invalid summary means or run counts.')
     if np.isinf(result['std']).any() or (result['std'].dropna()<0).any():
         raise ValueError('Invalid SD.')
+    if np.isinf(result['ci95']).any() or (result['ci95'].dropna()<0).any():
+        raise ValueError('Invalid CI95.')
     if ((result.n>1)&result['std'].isna()).any():
         raise ValueError('Missing SD for a multi-run summary.')
+    if ((result.n>1)&result['ci95'].isna()).any():
+        raise ValueError('Missing CI95 for a multi-run summary.')
     result.loc[result.n==1,'std']=np.nan
+    result.loc[result.n==1,'ci95']=np.nan
     result['n']=result.n.astype(int)
     return result
 
@@ -125,6 +131,7 @@ def scale_summary(summary, scale='none'):
     out=summary.copy()
     out['plot_mean']=out['mean']
     out['plot_std']=out['std']
+    out['plot_ci95']=out['ci95']
     parameters={}
     for metric in dict.fromkeys(out.metric):
         mask=out.metric==metric
@@ -141,9 +148,11 @@ def scale_summary(summary, scale='none'):
             warnings.warn(f'{metric}: constant condition means; min-max undefined. Drawn at zero without error bars; raw values saved.')
             out.loc[mask,'plot_mean']=0.
             out.loc[mask,'plot_std']=np.nan
+            out.loc[mask,'plot_ci95']=np.nan
         else:
             out.loc[mask,'plot_mean']=(means-offset)/factor
             out.loc[mask,'plot_std']=out.loc[mask,'std']/factor
+            out.loc[mask,'plot_ci95']=out.loc[mask,'ci95']/factor
         parameters[metric]=dict(offset=offset,factor=factor,constant_minmax=constant)
     return out,parameters
 
@@ -158,8 +167,8 @@ def plot_grouped_bars(summary, *, scale='none', errorbars='sd', title=None,
     """
     import matplotlib.pyplot as plt
     from matplotlib.ticker import MaxNLocator
-    if errorbars not in ('sd','none'):
-        raise ValueError('errorbars must be sd or none.')
+    if errorbars not in ('sd','ci95','none'):
+        raise ValueError('errorbars must be sd, ci95, or none.')
     conditions=list(dict.fromkeys(summary.condition))
     metrics=list(dict.fromkeys(summary.metric))
     if summary.duplicated(['condition','metric']).any() or len(summary)!=len(conditions)*len(metrics):
@@ -182,14 +191,19 @@ def plot_grouped_bars(summary, *, scale='none', errorbars='sd', title=None,
             part=plotted[plotted.metric==metric].set_index('condition').loc[conditions]
             values=part.plot_mean.to_numpy()
             std=part.plot_std.to_numpy()
+            ci95=part.plot_ci95.to_numpy()
             pos=y+(j-(m-1)/2)*h
             label=(metric_labels or {}).get(metric,LABELS.get(metric,metric))
             if scale=='none':
                 label+= ' [nats]' if metric in NATS else (' [unitless]' if metric in DIMENSIONLESS else '')
             ax.barh(pos,values,height=h*.9,color=colors[j],label=label,zorder=3)
-            valid=np.isfinite(std)
-            if errorbars=='sd' and valid.any():
-                ax.errorbar(values[valid],pos[valid],xerr=std[valid],fmt='none',
+            valid_std=np.isfinite(std)
+            valid_ci95=np.isfinite(ci95)
+            if errorbars=='sd' and valid_std.any():
+                ax.errorbar(values[valid_std],pos[valid_std],xerr=std[valid_std],fmt='none',
+                            ecolor='#303030',elinewidth=.8,capsize=2,zorder=4)
+            elif errorbars=='ci95' and valid_ci95.any():
+                ax.errorbar(values[valid_ci95],pos[valid_ci95],xerr=ci95[valid_ci95],fmt='none',
                             ecolor='#303030',elinewidth=.8,capsize=2,zorder=4)
             if annotate:
                 for value,yy in zip(values,pos):
@@ -209,7 +223,7 @@ def plot_grouped_bars(summary, *, scale='none', errorbars='sd', title=None,
         ax.tick_params(axis='y',length=0)
         ax.margins(x=.16 if annotate else .06)
         ax.legend(loc='upper left',bbox_to_anchor=(1.01,1),frameon=False,title='Metric')
-        notes='Mean across runs' + ('; error bars: ±1 sample SD' if errorbars=='sd' else '')
+        notes='Mean across runs' + ('; error bars: ±1 sample SD' if errorbars=='sd' else '; error bars: ±95% CI' if errorbars=='ci95' else '')
         if (summary.n==1).any():
             notes+='; SD unavailable for single runs'
         if any(v['constant_minmax'] for v in parameters.values()):
@@ -228,7 +242,7 @@ def main():
     p.add_argument('--input-format',choices=['runs','summary'],default='runs')
     p.add_argument('--where',action='append',default=[],metavar='COLUMN=VALUE',help='Filter group/pair/etc; repeatable')
     p.add_argument('--scale',choices=['none','minmax','maxabs'],default='none')
-    p.add_argument('--errorbars',choices=['sd','none'],default='sd')
+    p.add_argument('--errorbars',choices=['sd','ci95','none'],default='sd')
     p.add_argument('--title')
     p.add_argument('--annotate',action='store_true')
     p.add_argument('--out',type=Path,default=Path('figures/uncertainty_bars'),help='Output prefix')

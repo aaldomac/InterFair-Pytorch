@@ -3,6 +3,10 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 
+from numpy.typing import ArrayLike
+from scipy.stats import t
+
+
 def completed_runs(folder):
     return sorted(run for run in (Path(folder)/'runs').glob('*/seed_*')
                   if (run/'COMPLETE').is_file())
@@ -17,6 +21,18 @@ def read_run_summaries(folder):
         raise ValueError('Expected exactly one summary row per completed run')
     return pd.concat(frames, ignore_index=True)
 
+
+def mean_ci95(values: ArrayLike) -> dict[str, float]:
+    """One scalar metric value per independent experiment run."""
+    x = np.asarray(values, dtype=float)
+    if x.ndim != 1 or x.size < 2 or not np.isfinite(x).all():
+        raise ValueError("Provide at least two finite run-level values.")
+    n = x.size
+    mean = float(x.mean())
+    sd = float(x.std(ddof=1))
+    se = sd / np.sqrt(n)
+    half_width = float(t.ppf(0.975, df=n-1) * se)
+    return {"mean": mean, "sd": sd, "se": se, "ci_low": mean - half_width, "ci_high": mean + half_width, "ci_half_width":half_width}
 
 def aggregate(frame, keys, metrics, *, missing="skip"):
     """Aggregate once; skip missing values for reports or reject them for plots.
@@ -39,9 +55,10 @@ def aggregate(frame, keys, metrics, *, missing="skip"):
         for metric in metrics:
             row[metric+'_n']=int(part[metric].notna().sum())
             row[metric+'_mean']=part[metric].mean()
-            row[metric+'_std']=part[metric].std(ddof=1)
+            row[metric+'_std']=mean_ci95(part[metric])["sd"]
+            row[metric+'_ci95']=mean_ci95(part[metric])["ci_half_width"]
         rows.append(row)
-    columns = list(keys) + ['runs'] + [m+suffix for m in metrics for suffix in ('_n', '_mean', '_std')]
+    columns = list(keys) + ['runs'] + [m+suffix for m in metrics for suffix in ('_n', '_mean', '_std', '_ci95')]
     return pd.DataFrame(rows, columns=columns)
 
 
@@ -51,9 +68,9 @@ def summary_to_long(stats, keys, metrics):
     for row in stats.to_dict('records'):
         for metric in metrics:
             rows.append({**{key: row[key] for key in keys}, 'metric': metric,
-                         'mean': row[metric+'_mean'], 'std': row[metric+'_std'],
+                         'mean': row[metric+'_mean'], 'std': row[metric+'_std'], 'ci95': row[metric+'_ci95'],
                          'n': row[metric+'_n']})
-    return pd.DataFrame(rows, columns=list(keys)+['metric', 'mean', 'std', 'n'])
+    return pd.DataFrame(rows, columns=list(keys)+['metric', 'mean', 'std', 'ci95', 'n'])
 
 
 def mean_std_table(stats, keys, metrics, digits):
