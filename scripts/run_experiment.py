@@ -18,6 +18,7 @@ def main():
     args = parser.parse_args()
     cfg, output = read_config(args.config)
     if args.soft is not None:
+        cfg.setdefault('audit', {}).pop('soft', None)
         cfg['audit']['df_soft'] = args.soft == 'true'
     conditions, seeds = cfg['conditions'], cfg['data_seeds']
     if args.condition is not None:

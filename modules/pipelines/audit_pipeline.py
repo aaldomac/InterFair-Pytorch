@@ -6,7 +6,7 @@ import numpy as np
 from modules.metrics.ensemble_quality import ensemble_quality
 from modules.metrics.uncertainty_audit import audit_uncertainties, add_group_entropy_metrics
 
-AUDIT_SCHEMA_VERSION = 2
+AUDIT_SCHEMA_VERSION = 3
 
 @dataclass(frozen=True)
 class AuditConfig:
@@ -20,15 +20,22 @@ class AuditConfig:
     synthetic_diagnostics: bool = True
     include_pairs: bool = True
     df_soft: bool = False
+    disparity_metric: str = "class_probability"
+    disparity_offset: float = 0.
 
     def __post_init__(self):
+        from modules.metrics.log_ratio import SUBGROUP_METRICS
+        if self.disparity_metric not in SUBGROUP_METRICS:
+            raise ValueError("Unknown disparity_metric")
+        if not np.isfinite(self.disparity_offset) or self.disparity_offset < 0:
+            raise ValueError("disparity_offset must be finite and nonnegative")
         for name in ('enabled', 'fairness', 'distribution', 'synthetic_diagnostics', 'include_pairs', 'df_soft'):
             if type(getattr(self, name)) is not bool:
                 raise ValueError(f'audit.{name} must be boolean')
         if not 0 < self.confidence_alpha < 1:
             raise ValueError('confidence_alpha must be in (0, 1)')
-        if not np.isfinite(self.smoothing_alpha) or self.smoothing_alpha <= 0:
-            raise ValueError('smoothing_alpha must be finite and positive')
+        if not np.isfinite(self.smoothing_alpha) or self.smoothing_alpha < 0:
+            raise ValueError('smoothing_alpha must be finite and nonnegative')
         if type(self.positive_class) is not int or self.positive_class < 0:
             raise ValueError('positive_class must be a nonnegative integer')
 
@@ -37,6 +44,11 @@ class AuditConfig:
         if isinstance(options, cls):
             return options
         values = dict(options or {})
+        if 'soft' in values:
+            soft = values.pop('soft')
+            if 'df_soft' in values and values['df_soft'] != soft:
+                raise ValueError('soft and df_soft disagree')
+            values['df_soft'] = soft
         if 'alpha' in values:  # Existing YAML files remain supported.
             old = values.pop('alpha')
             if 'confidence_alpha' in values and old != values['confidence_alpha']:
@@ -85,7 +97,6 @@ def audit_inputs_from_result(result):
 def run_audit(inputs: AuditInputs, config=None):
     """Compute metrics without inference, data loading, or writing files."""
     options = AuditConfig.from_mapping(config)
-    print(f"options.df_soft in run_audit= {options.df_soft}")
     ensemble, labels, groups = inputs.ensemble, inputs.labels, inputs.groups
     probs = np.asarray(ensemble['mean_probs'])
     if probs.ndim != 2 or probs.shape[1] != inputs.num_classes:
@@ -132,7 +143,15 @@ def run_audit(inputs: AuditInputs, config=None):
         kwargs = dict(binary=inputs.binary, threshold=inputs.threshold,
                       positive_class=options.positive_class, alpha=options.smoothing_alpha)
         fairness = evaluate_ensemble_fairness(ensemble, labels, groups, soft=options.df_soft, **kwargs)
-        performance = performance_fairness(ensemble, labels, groups, **kwargs)
+        performance = performance_fairness(ensemble, labels, groups, soft=options.df_soft, **kwargs)
+        from modules.metrics.fairness_metrics import _class_probabilities
+        from modules.metrics.log_ratio import metric_log_ratio
+        selected = _class_probabilities(probs, soft=options.df_soft, threshold=inputs.threshold).numpy()
+        disparity = metric_log_ratio(selected, labels, groups, options.disparity_metric,
+            positive_class=options.positive_class, offset=options.disparity_offset,
+            expected_groups=list(inputs.group_names))
+        disparity.update(soft=options.df_soft, threshold=inputs.threshold)
+        additional['metric_log_ratio'] = disparity
         additional.update(fairness=fairness, performance_fairness=performance,
                           classical_summary=classical_fairness_summary(fairness, performance))
     if options.distribution:
@@ -140,5 +159,19 @@ def run_audit(inputs: AuditInputs, config=None):
         additional['distribution'] = dict(group_entropy_decompositions=decompositions,
             pairwise_group_mean_distribution_matrices=(
                 pairwise_group_mean_distribution_matrices(probs, groups) if options.include_pairs else {}))
-    return dict(uncertainty_audit=audit, predictive_metrics=metrics,
+    return dict(audit_settings=audit_settings(inputs, options), uncertainty_audit=audit, predictive_metrics=metrics,
                 group_predictive_metrics=by_group, additional_metrics=additional)
+
+def audit_settings(inputs, config=None):
+    """Stable identity for effective audit settings, independent of model seeds."""
+    from dataclasses import asdict
+    import hashlib
+    import json
+    options = AuditConfig.from_mapping(config)
+    payload = dict(options=asdict(options), threshold=float(inputs.threshold),
+                   binary=inputs.binary, num_classes=inputs.num_classes, schema=AUDIT_SCHEMA_VERSION)
+    # Normalize integer mapping keys before sorting.
+    encoded = json.dumps(json.loads(json.dumps(payload)), sort_keys=True)
+    return dict(audit_id=hashlib.sha256(encoded.encode()).hexdigest()[:16],
+                soft=options.df_soft, threshold=float(inputs.threshold),
+                disparity_metric=options.disparity_metric, disparity_offset=options.disparity_offset)

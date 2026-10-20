@@ -27,7 +27,7 @@ def error_auroc(errors, scores):
 
 
 def diagnose_predictions(ensemble, labels, groups, *, group_names=None, threshold=.5,
-                         positive_class=1, high_confidence=.9, bins=10):
+                         positive_class=1, high_confidence=.9, bins=10, soft=False):
     """Return wide subgroup/stratum metrics and per-group reliability bins.
 
     Binary decisions follow threshold on column 1, matching ensemble_quality;
@@ -54,6 +54,7 @@ def diagnose_predictions(ensemble, labels, groups, *, group_names=None, threshol
     y = y.astype(int)
     # Compute predictions, confidence, errors, high-confidence mask, and uncertainty components for all samples.
     pred = ((p[:, 1] >= threshold).astype(int) if c == 2 else p.argmax(1))
+    selected_probabilities = p if soft else np.eye(c)[pred]
     confidence = p[np.arange(len(p)), pred]
     error = pred != y
     high = confidence >= high_confidence
@@ -105,6 +106,7 @@ def diagnose_predictions(ensemble, labels, groups, *, group_names=None, threshol
         for k in range(c):
             result[f'prevalence_class_{k}'] = mean(y == k)
             result[f'mean_prob_class_{k}'] = mean(p[:, k])
+            result[f'audit_prediction_frequency_class_{k}'] = mean(selected_probabilities[:, k])
         ece = 0.
         for b in range(bins):
             bm = mask & (bin_id == b)
@@ -162,7 +164,7 @@ def read_run_diagnostics(run, **kwargs):
     threshold = context.get('threshold', config.get('train', {}).get('threshold', .5))
     positive = options.get('positive_class', 1)
     diagnostics, reliability = diagnose_predictions(ensemble, y, g, group_names=names,
-        threshold=threshold, positive_class=positive, **kwargs)
+        threshold=threshold, positive_class=positive, soft=options.get('df_soft', options.get('soft', False)), **kwargs)
     identity = dict(condition=run.parent.name, seed=run.name, run=str(run.resolve()))
     if (run/'summary.csv').exists():
         summary = pd.read_csv(run/'summary.csv', dtype={'condition':str})
@@ -173,7 +175,9 @@ def read_run_diagnostics(run, **kwargs):
     for frame in (diagnostics, reliability):
         for key, value in identity.items():
             frame[key] = value
-    meta = dict(**identity, threshold=threshold, positive_class=positive,
+    meta = dict(**identity, audit_id=context.get('audit_id', 'legacy'),
+                audit_soft=options.get('df_soft', options.get('soft', False)),
+                diagnostic_policy='Continuous uncertainty/calibration; hard classification errors', threshold=threshold, positive_class=positive,
                 classes=ensemble['mean_probs'].shape[1], group_names=names,
                 decision_policy='Binary column-1 threshold (ensemble_quality); multiclass argmax',
                 provenance=context.get('provenance', {}))

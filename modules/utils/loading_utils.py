@@ -32,14 +32,15 @@ def load_saved_outputs(folder, *, _seen=None):
         raise ValueError('Cyclic source_run references in audit artifacts')
     seen.add(folder)
     paths = sorted((folder/'results').glob('ensemble_*.npy'))
-    if not paths:
+    if not any(p.stem == 'ensemble_mean_probs' for p in paths):
         context_path = folder/'audit/audit_context.json'
         context = json.loads(context_path.read_text()) if context_path.exists() else {}
         source = context.get('source_run')
         if source:
             source = Path(source)
             return load_saved_outputs(source if source.is_absolute() else folder/source, _seen=seen)
-        raise FileNotFoundError(f'No saved ensemble predictions in {folder}')
+        from modules.utils.checkpoint_utils import infer_saved_run
+        return infer_saved_run(folder)
     ensemble = {p.stem.removeprefix('ensemble_'):np.load(p,allow_pickle=False) for p in paths}
     with np.load(folder/'audit/audit_rows.npz',allow_pickle=False) as rows:
         labels, groups = rows['y'].copy(), rows['group_id'].copy()

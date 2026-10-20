@@ -37,6 +37,9 @@ def finite(values, label):
 
 def load_results(folder, conditions=None):
     """Read each completed run once; reject malformed completed artifacts."""
+    from modules.utils.reporting_utils import validate_audit_policies
+    validate_audit_policies([p for p in (folder/'runs').glob('*/seed_*')
+                             if (p/'COMPLETE').exists() and (not conditions or p.parent.name in conditions)])
     runs, groups, pairs, skipped = [], [], [], []
     found = set()
     for path in sorted((folder/'runs').glob('*/seed_*')):

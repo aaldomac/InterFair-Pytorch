@@ -8,8 +8,10 @@ from scipy.stats import t
 
 
 def completed_runs(folder):
-    return sorted(run for run in (Path(folder)/'runs').glob('*/seed_*')
+    runs = sorted(run for run in (Path(folder)/'runs').glob('*/seed_*')
                   if (run/'COMPLETE').is_file())
+    validate_audit_policies(runs)
+    return runs
 
 
 def read_run_summaries(folder):
@@ -42,6 +44,8 @@ def aggregate(frame, keys, metrics, *, missing="skip"):
     if missing not in ("skip", "raise"):
         raise ValueError("missing must be skip or raise")
     frame = frame.copy()
+    if 'audit_id' in frame and (frame.groupby(keys, dropna=False)['audit_id'].nunique(dropna=False) > 1).any():
+        raise ValueError('Mixed audit settings; select one audit_id before aggregation')
     for metric in metrics:
         frame[metric] = pd.to_numeric(frame[metric], errors="raise")
         if missing == "raise" and not np.isfinite(frame[metric].to_numpy(dtype=float)).all():
@@ -98,3 +102,15 @@ def latex_table(frame):
         lines.append(' & '.join(latex_escape(x) for x in row)+r' \\')
     lines += [r'\bottomrule',r'\end{tabular}']
     return '\n'.join(lines)+'\n'
+
+def validate_audit_policies(runs):
+    """Prevent reports/plots from pooling incompatible settings within a condition."""
+    import json
+    policies = {}
+    for run in runs:
+        path = Path(run)/'audit/audit_context.json'
+        context = json.loads(path.read_text()) if path.exists() else {}
+        identity = context.get('audit_id', 'legacy')
+        policies.setdefault(Path(run).parent.name, set()).add(identity)
+    if any(len(values) > 1 for values in policies.values()):
+        raise ValueError('Mixed audit settings within a condition; report each audit policy separately')

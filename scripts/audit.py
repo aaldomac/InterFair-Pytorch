@@ -1,4 +1,4 @@
-"""Re-audit saved predictions through the training audit API; never overwrite a run."""
+"""Audit saved ensemble probabilities or checkpoints without training."""
 import argparse
 import json
 import shutil
@@ -31,6 +31,10 @@ def overwrite_audit_in_place(run, *, overrides=None, threshold=None):
         # Existing function writes a complete result to a fresh destination.
         audited = audit_saved_run(run,staged,overrides=overrides,threshold=threshold,)
 
+        from modules.pipelines.audit_pipeline import audit_settings
+        previous = audit_settings(load_audit_inputs(run), load_audit_config(run))
+        if previous['audit_id'] != audited['audit_settings']['audit_id']:
+            raise ValueError('Changed audit settings require a new --out; in-place replacement would mix policies')
         staged_audit = staged / 'audit'
         staged_context_path = staged_audit / 'audit_context.json'
         context = json.loads(staged_context_path.read_text())
@@ -39,7 +43,7 @@ def overwrite_audit_in_place(run, *, overrides=None, threshold=None):
         # reference when moving the results back into `run` itself.
         context.pop('source_run', None)
 
-        has_local_predictions = any((run / 'results').glob('ensemble_*.npy'))
+        has_local_predictions = (run/'results/ensemble_mean_probs.npy').exists() or (run/'models/model_metadata.json').exists()
         if not has_local_predictions:
             # This run may itself be a previously generated re-audit.
             source = old_context.get('source_run')
@@ -73,6 +77,7 @@ def overwrite_audit_in_place(run, *, overrides=None, threshold=None):
             'classical_summary.json',
             'distribution.json',
             'diagnostic_rows.npz',
+            'metric_log_ratio.json',
         }
 
         # A partially installed update must not be marked complete.
@@ -104,6 +109,12 @@ def audit_saved_run(run, out, *, overrides=None, threshold=None, overwrite=False
         raise ValueError('Re-audit destination must be outside its source run')
     options = load_audit_config(run)
     updates = dict(overrides or {})
+    if 'soft' in updates:
+        if 'df_soft' in updates and updates['df_soft'] != updates['soft']:
+            raise ValueError('soft and df_soft disagree')
+        updates['df_soft'] = updates.pop('soft')
+    if 'df_soft' in updates:
+        options.pop('soft', None)
     if 'alpha' in updates:
         if 'confidence_alpha' in updates and updates['confidence_alpha'] != updates['alpha']:
             raise ValueError('alpha and confidence_alpha disagree')
@@ -119,7 +130,6 @@ def audit_saved_run(run, out, *, overrides=None, threshold=None, overwrite=False
     out.mkdir(parents=True, exist_ok=False)
     save_audit_bundle(out, audited, inputs, options, source_run=run)
     config = load_config_from_experiment(run)
-    config.setdefault('train', {})['threshold'] = inputs.threshold
     _json_dump(config, out/'config.json')
     for name in ('experiment.yaml', 'resolved_run.yaml'):
         if (run/name).exists():
@@ -153,12 +163,13 @@ def main():
     source.add_argument('--experiment', type=Path, help='Audit all completed runs into a new experiment tree')
     parser.add_argument('--config', type=Path, help='YAML audit settings override the saved settings')
     parser.add_argument('--threshold', type=float)
-    # TODO: The soft argument gets changed somewhere in the pipeline to False
-    parser.add_argument('--soft', type=str.lower, choices=('true', 'false'), default=None, metavar='{True,False}', help='Use soft probabilities for DF; otherwise use hard labels.')
+    parser.add_argument('--soft', type=str.lower, choices=('true', 'false'), default=None, metavar='{True,False}', help='Use ensemble probabilities for prediction-based fairness; False hardens the ensemble mean.')
+    parser.add_argument('--disparity-metric', choices=('class_probability','tpr','fpr','accuracy'))
+    parser.add_argument('--disparity-offset', type=float)
+    parser.add_argument('--fairness', action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument('--out', type=Path, required=True)
     parser.add_argument('--overwrite', action='store_true', help='Replace audit outputs in place; requires --out equal to source.')
     args = parser.parse_args()
-    print(f"Args.soft in audit.py: {args.soft}")
     source_path = args.run if args.run is not None else args.experiment
     same_destination = args.out.resolve() == source_path.resolve()
 
@@ -174,8 +185,15 @@ def main():
         overrides = cfg.get('audit', {})
         if threshold is None:
             threshold = cfg.get('pipeline', {}).get('train', {}).get('threshold')
-    if args.soft is None:
-        overrides['df_soft'] = args.soft == 'false'
+    if args.soft is not None:
+        overrides.pop('soft', None)
+        overrides['df_soft'] = args.soft == 'true'
+    for name in ('disparity_metric', 'disparity_offset', 'fairness'):
+        value = getattr(args, name)
+        if value is not None:
+            overrides[name] = value
+    if args.disparity_metric is not None:
+        overrides['fairness'] = True
     if args.run:
         audit_saved_run(args.run, args.out, overrides=overrides, threshold=threshold, overwrite=args.overwrite)
     else:

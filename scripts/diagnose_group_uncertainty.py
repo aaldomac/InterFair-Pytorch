@@ -54,7 +54,7 @@ def main():
             raise ValueError('--class-names must match the number of classes.')
         print(f"Data conditions= {data.condition.unique()}")
         for condition in data.condition.unique():
-            policies = {(m['threshold'],m['positive_class']) for m in metadata if m['condition']==condition}
+            policies = {(m['threshold'],m['positive_class'],m['audit_id']) for m in metadata if m['condition']==condition}
             if len(policies) != 1:
                 raise ValueError(f'Mixed decision policies within {condition}; select consistent runs.')
         for gid, part in data.groupby('group_id'):

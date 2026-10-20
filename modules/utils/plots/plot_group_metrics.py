@@ -77,7 +77,7 @@ def read_group_run(run):
                 for gid in ids:
                     row(gid).update(_scalars({key: values[str(gid)]}))
 
-    performance = _json(audit / 'performance_fairness.jdon')
+    performance = _json(audit / 'performance_fairness.json')
     for record in performance.get('groups', []):
         target = row(record['group_id'])
         target.update(_scalars({k: v for k, v in record.items() if k != 'group_id'}))
@@ -102,6 +102,9 @@ def read_group_run(run):
             if isinstance(value, dict):
                 collect(value, prefix + key + '.')
     collect(fairness)
+    disparity = _json(audit / "metric_log_ratio.json")
+    for gid, value in zip(disparity.get("groups", []), disparity.get("raw_group_values", [])):
+        row(gid).update(_scalars({"log_ratio_" + disparity["metric"] + ".value": value}))
     # Fallback when uncertainty auditing was disabled but fairness was saved.
     for source, dest in (('aleatoric_uncertainty', 'alea'),
                          ('epistemic_uncertainty', 'epis'), ('predictive_entropy', 'tot')):

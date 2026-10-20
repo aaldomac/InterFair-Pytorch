@@ -667,6 +667,10 @@ def save_audited_result(result, out, audit, predictive_metrics, group_metrics, a
         y=data.test_df[data.spec.label_col].to_numpy(),
         group_id=data.test_df[data.spec.group_id_col].to_numpy(),
         source_index=data.test_df.index.to_numpy())
+    if data.predictor_schema.get('modality') != 'image':
+        from modules.utils.dataset_utils import transform_predictor_schema
+        x, y, g = transform_predictor_schema(data.test_df, data.predictor_schema)
+        np.savez_compressed(output/'data/audit_inputs.npz', X=x.numpy(), y=y.numpy(), group_id=g.numpy())
     save_split_indices(data.train_df.index.to_numpy(), data.val_df.index.to_numpy(),
                        data.test_df.index.to_numpy(), output / 'splits')
     if 'oracle_entropy_bits' in data.loaded.metadata:
@@ -691,8 +695,10 @@ def save_audit_bundle(output, audited, inputs, config=None, *, source_run=None):
     for name, values in audited['additional_metrics'].items():
         _json_dump(values, folder/f'{name}.json')
     _json_dump(options, folder/'audit_config.json')
-    context = dict(schema_version=AUDIT_SCHEMA_VERSION, group_names=inputs.group_names,
-                   binary=inputs.binary, threshold=inputs.threshold, num_classes=inputs.num_classes,
+    from modules.pipelines.audit_pipeline import audit_settings
+    settings = audit_settings(inputs, options)
+    context = dict(**settings, schema_version=AUDIT_SCHEMA_VERSION, group_names=inputs.group_names,
+                   binary=inputs.binary, num_classes=inputs.num_classes,
                    metadata=inputs.metadata, provenance=inputs.provenance)
     if source_run is not None:
         context['source_run'] = str(Path(source_run).resolve())
@@ -714,7 +720,7 @@ def save_audit_bundle(output, audited, inputs, config=None, *, source_run=None):
     except (OSError, subprocess.CalledProcessError):
         commit, dirty = None, None
     _json_dump(dict(schema_version=AUDIT_SCHEMA_VERSION, source_commit=commit,
-                   source_dirty=dirty, audit_options=options), Path(output)/'artifact_manifest.json')
+                   source_dirty=dirty, audit_options=options, **settings), Path(output)/'artifact_manifest.json')
     return folder
 
 
@@ -722,6 +728,11 @@ def save_run_summary(folder, audited, identity):
     """A single summary definition shared by training and re-auditing."""
     import csv
     row = dict(identity, **audited['predictive_metrics'])
+    if 'audit_settings' in audited:
+        row['audit_id'] = audited['audit_settings']['audit_id']
+    disparity = audited['additional_metrics'].get('metric_log_ratio')
+    if disparity is not None:
+        row['log_ratio_' + disparity['metric']] = disparity['epsilon']
     row.update(audited['additional_metrics'].get('classical_summary', {}))
     audit = audited['uncertainty_audit']
     if audit is not None:

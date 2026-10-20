@@ -477,7 +477,6 @@ def _class_probabilities(preds, *, threshold=0.5, num_classes=None, soft=False):
     Vectors default to binary scores. For integer multiclass labels, specify
     num_classes explicitly so abstent classes are included consistently.
     """
-    print(f"_class_probabilities: threshold={threshold}, num_classes={num_classes}, soft={soft}")
     x = _as_tensor(preds, dtype=torch.float64).detach().cpu()
     if num_classes is not None:
         if isinstance(num_classes, bool) or not isinstance(num_classes, int) or num_classes < 2:
@@ -588,15 +587,15 @@ def differential_fairness(
     Empty input returns empty arrays and zero aggregate; a single observed
     group also has zero aggregate. Unobserved groups are not estimated.
     """
+    from modules.metrics.log_ratio import maximum_log_ratio
     raw = _as_tensor(preds)
     legacy_binary = num_classes is None and (raw.ndim == 1 or (raw.ndim == 2 and raw.shape[1] == 1))
-    print(f"preds: {preds}")
     probs = _class_probabilities(preds, threshold=threshold, num_classes=num_classes, soft=soft)  # [N, C]
-    print(f"probs: {probs}")
     rates, groups = _group_class_rates(probs, group_ids, alpha)  # [G, C], [G]
     matrix = _build_pairwise_matrix(groups, lambda i, j: _class_log_gaps(rates[i], rates[j]).max().item(), diagonal_value=0.0)
     returned_rates = rates[:, 1] if legacy_binary else rates
-    return _max_off_diagonal(matrix), matrix, groups, returned_rates.float()
+    reduced = maximum_log_ratio(rates.numpy(), groups.tolist())
+    return (reduced['epsilon'] if len(groups) >= 2 else 0.0), matrix, groups, returned_rates.float()
 
 
 # ==================================================
@@ -784,63 +783,47 @@ def evaluate_ensemble_fairness(
 
     Returns a nested dictionary with scalar aggregates, matrices/vectors, and group IDs.
     """
-    labels_t = _as_1d_tensor(labels, dtype=torch.long, name="labels")
-    group_ids_t = _as_1d_tensor(group_ids, dtype=torch.long, name="group_ids")
+    labels_t = _as_1d_tensor(labels, dtype=torch.long, name="labels").cpu()
+    group_ids_t = _as_1d_tensor(group_ids, dtype=torch.long, name="group_ids").cpu()
 
     mean_probs = _as_tensor(ensemble_outputs["mean_probs"], dtype=torch.float32, name="mean_probs")
 
-    positive_scores = positive_class_scores(mean_probs, positive_class=positive_class,)
-
-    if binary:
-        # Recompute using the requested threshold, ignoring saved argmax labels.
-        is_positive = positive_scores >= threshold
-        pred_labels = torch.where(
-            is_positive,
-            torch.full_like(is_positive, positive_class, dtype=torch.long),
-            torch.full_like(is_positive, 1 - positive_class, dtype=torch.long),
-        )
-    elif "predictions" in ensemble_outputs:
-        pred_labels = _as_1d_tensor(
-            ensemble_outputs["predictions"],
-            dtype=torch.long,
-            name="predictions",
-        )
-    else:
-        pred_labels = prediction_scores_to_labels(
-            mean_probs,
-            positive_class=positive_class,
-        )
-
-    sp_agg, sp_matrix, sp_groups = statistical_parity(positive_scores, group_ids_t, threshold=threshold)
-    di_agg, di_matrix, di_groups = disparate_impact(positive_scores, group_ids_t, threshold=threshold)
-    eo_agg, eo_matrix, eo_groups = equal_opportunity(pred_labels, labels_t, group_ids_t, threshold=threshold, positive_class=positive_class,)
-
-    eodds_agg, eodds_matrix, eodds_groups = equalized_odds(pred_labels, labels_t, group_ids_t, threshold=threshold, positive_class=positive_class,)
-    
-    if soft:
-        print("Soft is TRUE. Using mean_probs for differential fairness.")
-        # Compare every class's mean predicted probability.
-        df_input = mean_probs
-        df_num_classes = None
-    else:
-        print("Soft is FALSE. Using positive_scores or pred_labels for differential fairness.")
-        # Preserve existing hard-decision behavior.
-        df_input = positive_scores if binary else pred_labels
-        df_num_classes = None if binary else mean_probs.shape[1]
+    # Always decide AFTER ensemble averaging; stored labels may use another policy.
+    selected = _class_probabilities(mean_probs, soft=soft, threshold=threshold)
+    positive_scores = selected[:, positive_class]
+    from modules.metrics.log_ratio import subgroup_metric_values
+    ids = sorted(set(group_ids_t.tolist()))
+    rates, _ = subgroup_metric_values(selected.numpy(), labels_t.numpy(), group_ids_t.numpy(),
+                                      'class_probability')
+    tprs, _ = subgroup_metric_values(selected.numpy(), labels_t.numpy(), group_ids_t.numpy(),
+                                     'tpr', positive_class=positive_class)
+    fprs, _ = subgroup_metric_values(selected.numpy(), labels_t.numpy(), group_ids_t.numpy(),
+                                     'fpr', positive_class=positive_class)
+    gs = torch.tensor(ids)
+    def gaps(values):
+        matrix = torch.tensor(np.abs(values[:, None] - values[None, :]), dtype=torch.float32)
+        return (float(matrix.max()) if len(ids) >= 2 else 0.), matrix, gs
+    sp_agg, sp_matrix, sp_groups = gaps(rates[:, positive_class])
+    eo_agg, eo_matrix, eo_groups = gaps(tprs)
+    _, fp_matrix, _ = gaps(fprs)
+    eodds_matrix = torch.maximum(eo_matrix, fp_matrix)
+    eodds_agg = float(eodds_matrix.max()) if len(ids) >= 2 else 0.
+    eodds_groups = gs
+    r = rates[:, positive_class]
+    maximum = np.maximum(r[:, None], r[None, :])
+    di_matrix = torch.tensor(np.divide(np.minimum(r[:, None], r[None, :]), maximum,
+                                      out=np.ones_like(maximum), where=maximum != 0)).float()
+    di_agg, di_groups = _min_off_diagonal(di_matrix), gs
     df_agg, df_matrix, df_groups, df_group_rates = differential_fairness(
-        df_input, group_ids_t, threshold=threshold, alpha=alpha, soft=soft,
-        num_classes=df_num_classes,
-        )
-    ssp = subgroup_statistical_parity(positive_scores, group_ids_t, threshold=threshold, alpha=alpha,)
-
-    per_class = None
-    if mean_probs.ndim == 2:
-        pc_agg, pc_tensor, pc_groups = per_class_fairness(mean_probs, group_ids_t)
-        per_class = {
-            "aggregate": pc_agg,
-            "tensor": pc_tensor,
-            "groups": pc_groups,
-        }
+        mean_probs, group_ids_t, threshold=threshold, alpha=alpha, soft=soft)
+    global_rate = float(positive_scores.mean())
+    counts = torch.tensor([int((group_ids_t == g).sum()) for g in ids], dtype=torch.float32)
+    weights = (counts + alpha) / (counts.sum() + len(ids)*alpha)
+    ssp_values = weights * torch.tensor(np.abs(r-global_rate)).float()
+    ssp = (float(ssp_values.max()), ssp_values, gs, global_rate, torch.tensor(r).float(), weights)
+    pc_agg, pc_tensor, pc_groups = per_class_fairness(selected, group_ids_t, eps=None)
+    per_class = dict(aggregate=pc_agg, tensor=pc_tensor, groups=pc_groups,
+                     soft=soft, alpha=0., clipping=None)
 
     uncertainty_results: Dict[str, Any] = {}
     uncertainty_key_map = {
@@ -871,6 +854,8 @@ def evaluate_ensemble_fairness(
             "group_probs": su[5],
         }
 
+    from modules.metrics.log_ratio import maximum_log_ratio
+    df_details = maximum_log_ratio(df_group_rates.numpy(), df_groups.tolist())
     return {
         "statistical_parity": {
             "aggregate": sp_agg,
@@ -897,6 +882,10 @@ def evaluate_ensemble_fairness(
             "matrix": df_matrix,
             "groups": df_groups,
             "group_rates": df_group_rates,
+            "soft": soft, "alpha": alpha, "threshold": threshold,
+            "convention": "class_probability_differential_fairness",
+            "maximizing_pair": df_details["maximizing_pair"],
+            "component": df_details["component"],
         },
         "subgroup_statistical_parity": {
             "aggregate": ssp[0],
@@ -1016,16 +1005,17 @@ result.test_metrics["statistical_parity"] = fairness["statistical_parity"]["aggr
 
 # Classical performance-rate comparisons for reports; reuse the existing smoothing.
 def performance_fairness(ensemble_outputs, labels, group_ids, *, binary=True,
-                         threshold=.5, positive_class=1, alpha=1.):
-    """Group confusion counts, rates, gaps and symmetric log-rate ratios.
+                         threshold=.5, positive_class=1, alpha=1., soft=False):
+    """Group confusion counts (expected counts if soft), rates and log-rate ratios.
 
     rate_epsilon = max_{g,h} |log(rate_g)-log(rate_h)|, with Beta(alpha,alpha)
     smoothing. This is a rate-parity score, distinct from outcome DF, which also
     compares the complementary outcome. Unsupported rates remain None even when
     smoothing is enabled; an aggregate is None if ANY observed group lacks support.
     """
-    if not math.isfinite(alpha) or alpha <= 0:
-        raise ValueError('Performance log-ratios require finite smoothing alpha > 0.')
+    from modules.metrics.log_ratio import maximum_log_ratio
+    if not math.isfinite(alpha) or alpha < 0:
+        raise ValueError('Performance log-ratios require finite smoothing alpha >= 0.')
     probs = _as_tensor(ensemble_outputs['mean_probs'], dtype=torch.float32, name='mean_probs').cpu()
     y = _as_1d_tensor(labels, dtype=torch.long, name='labels').cpu()
     g = _as_1d_tensor(group_ids, dtype=torch.long, name='group_ids').cpu()
@@ -1038,38 +1028,36 @@ def performance_fairness(ensemble_outputs, labels, group_ids, *, binary=True,
     if binary:
         if probs.shape[1] != 2 or not set(y.tolist()) <= {0,1}:
             raise ValueError('Binary comparisons require two classes and labels 0/1.')
-        pred = torch.where(probs[:,positive_class] >= threshold, positive_class, 1-positive_class)
-    else:
-        pred = probs.argmax(dim=1)
+    selected = _class_probabilities(probs, soft=soft, threshold=threshold)
     ids = sorted(g.unique().tolist())
     rows=[]
-    events={}
+    metrics = ['TPR', 'FPR', 'TNR', 'PPV', 'Accuracy', 'Selection']
     for gid in ids:
         mask=g==gid
-        truth=y[mask]==positive_class; predicted=pred[mask]==positive_class
-        tp=int((truth & predicted).sum()); fn=int((truth & ~predicted).sum())
-        fp=int((~truth & predicted).sum()); tn=int((~truth & ~predicted).sum())
-        selected={
-            'TPR':predicted[truth], 'FPR':predicted[~truth],
-            'TNR':~predicted[~truth], 'PPV':truth[predicted],
-            'Accuracy':pred[mask]==y[mask], 'Selection':predicted,
-        }
-        row=dict(group_id=int(gid),support=int(mask.sum()),TP=tp,FN=fn,FP=fp,TN=tn)
-        events[gid]=selected
-        for key,event in selected.items():
-            n=event.numel()
-            row[key+'_support']=n
-            row[key]=float(event.float().mean()) if n else None
-            row[key+'_smoothed']=_smoothed_positive_rate(event.float(),.5,alpha) if n else None
+        truth=y[mask]==positive_class
+        predicted=selected[mask,positive_class]
+        tp=float(predicted[truth].sum()); fn=float((1-predicted[truth]).sum())
+        fp=float(predicted[~truth].sum()); tn=float((1-predicted[~truth]).sum())
+        n=int(mask.sum())
+        successes = dict(TPR=tp, FPR=fp, TNR=tn, PPV=tp,
+            Accuracy=float(selected[mask][torch.arange(n),y[mask]].sum()), Selection=tp+fp)
+        supports = dict(TPR=int(truth.sum()), FPR=int((~truth).sum()),
+            TNR=int((~truth).sum()), PPV=tp+fp, Accuracy=n, Selection=n)
+        cast = float if soft else int
+        row=dict(group_id=int(gid),support=n,TP=cast(tp),FN=cast(fn),FP=cast(fp),TN=cast(tn))
+        for key in metrics:
+            support = supports[key]
+            row[key+'_support']=support
+            row[key]=successes[key]/support if support else None
+            row[key+'_smoothed']=(successes[key]+alpha)/(support+2*alpha) if support else None
         rows.append(row)
     pairs=[]
-    metrics=list(events[ids[0]])
     for i,j in itertools.combinations(range(len(ids)),2):
         row=dict(group_a=int(ids[i]),group_b=int(ids[j]))
         for key in metrics:
             a,b=rows[i],rows[j]
             available=a[key] is not None and b[key] is not None
-            epsilon=abs(math.log(a[key+'_smoothed'])-math.log(b[key+'_smoothed'])) if available else None
+            epsilon=maximum_log_ratio([a[key+'_smoothed'], b[key+'_smoothed']])['epsilon'] if available else None
             row[key+'_gap']=abs(a[key]-b[key]) if available else None
             row[key+'_epsilon']=epsilon
             row[key+'_max_ratio']=math.exp(epsilon) if available else None
@@ -1082,6 +1070,7 @@ def performance_fairness(ensemble_outputs, labels, group_ids, *, binary=True,
             summary[name]=max(r[name] for r in pairs) if complete else None
     return dict(summary=summary,groups=rows,pairs=pairs,alpha=float(alpha),
                 threshold=float(threshold),positive_class=int(positive_class),binary=bool(binary),
+                soft=soft,
                 convention='epsilon=max absolute log smoothed rate ratio; max_ratio=exp(epsilon)',
                 missing_policy='No eligible observations: null. Aggregate requires support in every observed group.')
 

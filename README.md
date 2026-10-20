@@ -145,3 +145,11 @@ General condition bar plots and summaries work for both real and synthetic resul
 `report` is the specialized four-group synthetic oracle report.
 
 See [docs/REFACTOR.md](docs/REFACTOR.md) for migration decisions and validation limits.
+
+### Re-audit an existing ensemble in soft or hard mode
+
+Use `python -m scripts.audit --run path/to/run --soft True --disparity-metric tpr
+--out path/to/fresh-audit` (on one shell line). `--soft False` hardens the ensemble
+mean before applicable subgroup statistics. No training is invoked. See
+[Audit modes and metric log ratios](docs/audit_modes.md) for exact commands,
+configuration precedence, numerical policies, inference fallback and compatibility.
