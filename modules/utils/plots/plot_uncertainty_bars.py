@@ -4,12 +4,12 @@ Examples (from project root):
  python -m scripts.plot_uncertainty_bars --input experiments/kanubala --metrics F_tot F_U F_hidden F_U_int I_alea I_tot
  python plot_uncertainty_bars.py --input report/runs.csv --metrics F_alea F_epis --scale none
 
-Input: experiment root (reads completed runs via sibling report.py), per-run CSV,
-or long summary CSV with condition,metric,mean,std,n. No PyTorch required.
+Input: experiment root (reads completed runs via reporting_utils), per-run CSV,
+or long summary CSV with condition,metric,mean,std,ci95,n. No PyTorch required.
 Measurement results: pass measurement_uncertainty_runs.csv to --input.
 Group reports: use --input groups.csv --where group=11 --metrics alea epis tot.
 Order: --conditions loan_no_bias loan_single loan_additive loan_intersectional loan_compounded.
-Options: --scale none|minmax|maxabs, --errorbars sd|none, --annotate,
+Options: --scale none|minmax|maxabs, --errorbars sd|ci95|none, --annotate,
 --formats png pdf svg, --title TEXT, --figsize WIDTH HEIGHT, --show.
 Saves figures plus _values.csv (raw and plotted statistics) and _settings.json.
 Nonlinear per-run metrics are averaged as already computed; maxima are not
@@ -17,16 +17,43 @@ reconstructed from aggregated group/component columns. No pooling of groups.
 Without a seed column, each CSV row is assumed to be an independent repetition.
 With a seed column, duplicate condition/seed rows require filtering first.
 F_hidden is an explicit alias for the existing hidden_normalized column.
-Raw values and signed interactions are preserved by default. Error bars are SD,
-not confidence intervals. Min-max scaling is descriptive across selected condition
+Raw values and signed interactions are preserved by default. Error bars default
+to SD; use --errorbars ci95 for precomputed 95% CI half-widths. Min-max scaling is descriptive across selected condition
 MEANS, with SD divided by that same range (normalization uncertainty not estimated).
 """
 from pathlib import Path
 import argparse
 import json
 import warnings
+import textwrap
 import numpy as np
 import pandas as pd
+
+COLORS = {
+    "blue": "#0072B2", "orange": "#E69F00", "green": "#009E73",
+    "red": "#D55E00", "purple": "#CC79A7", "gray": "#7F7F7F",
+    "black": "#000000",
+}
+
+PALETTE = tuple(COLORS.values())
+
+HATCHES = ("", "//", "\\\\", "xx", "..", "++", "oo")
+
+PAPER_STYLE = {
+    "figure.dpi": 150, "savefig.dpi": 300,
+    "font.family": "serif", "font.serif": ["DejaVu Serif"],
+    "font.size": 8, "axes.labelsize": 8, "axes.titlesize": 8,
+    "legend.fontsize": 7, "xtick.labelsize": 7, "ytick.labelsize": 7,
+    "figure.titlesize": 9, "text.usetex": False,
+    "lines.linewidth": 1.8, "lines.markersize": 3.5,
+    "axes.spines.top": False, "axes.spines.right": False,
+    "axes.linewidth": .6, "axes.grid": False,
+    "axes.facecolor": "white", "figure.facecolor": "white",
+    "savefig.facecolor": "white", "legend.frameon": False,
+    "grid.color": "#7F7F7F", "grid.linestyle": "--",
+    "grid.linewidth": .6, "grid.alpha": .4,
+    "pdf.fonttype": 42, "ps.fonttype": 42,
+}
 
 ALIASES = {'F_hidden': 'hidden_normalized'}
 LABELS = {
@@ -36,7 +63,7 @@ LABELS = {
  'I_alea':r'$\mathcal{I}_{\mathrm{alea}}$', 'I_epis':r'$\mathcal{I}_{\mathrm{epis}}$',
  'I_tot':r'$\mathcal{I}_{\mathrm{tot}}$', 'I_oracle':r'$\mathcal{I}_{\mathrm{oracle}}$',
  'I_mix':r'$\mathcal{I}_{\mathrm{mix}}$', 'I_het':r'$\mathcal{I}_{\mathrm{het}}$',}
-NATS = {'F_tot','F_alea','F_epis','I_alea','I_epis','I_tot','I_oracle',
+NATS = {'F_tot','F_alea','F_epis', 'F_mix', 'F_het','I_alea','I_epis','I_tot','I_oracle', 'I_mix', 'I_het',
         'alea','epis','tot','oracle','alea_error','delta_alea','delta_epis','delta_tot'}
 DIMENSIONLESS = {'F_U','hidden_normalized','F_U_int'}
 
@@ -57,8 +84,9 @@ def read_results(source):
         return pd.read_csv(source/'runs.csv',dtype={'condition':str})
     raise ValueError('Use an experiment root, report directory, or a CSV file.')
 
+
 def summarize_metrics(frame, metrics, *, condition_col='condition', conditions=None, seed_col='seed', input_format='runs'):
-    """Return condition/metric/std/ci95/n; each row must be an independent run.
+    """Return condition/metric/mean/std/ci95/n; each row must be an independent run.
 
     For precomputed long summaries select input_format='summary'.
     Missing metrics/conditions or nonfinite means are rejected, not plotted as zero.
@@ -159,10 +187,14 @@ def scale_summary(summary, scale='none'):
 
 def plot_grouped_bars(summary, *, scale='none', errorbars='sd', title=None,
                       condition_labels=None, metric_labels=None, annotate=False,
-                      figsize=None, cmap='tab10'):
+                      figsize=None, cmap='paper', hatches=True, show_notes=True):
     """N conditions on Y, M bars per condition, values on X. Returns fig,ax,plotted,scales.
 
     condition_labels/metric_labels optionally map raw IDs to display labels.
+    cmap='paper' matches plotting_functions.py; existing colormaps still work.
+    figsize is in inches; match your manuscript's actual column/text width.
+    show_notes=False hides notes but retains them in fig.diagnostic_note.
+    hatches=True distinguishes metric bars without relying on color alone.
     Signed metrics extend left of zero. No absolute-value transformation is applied.
     """
     import matplotlib.pyplot as plt
@@ -177,16 +209,16 @@ def plot_grouped_bars(summary, *, scale='none', errorbars='sd', title=None,
     n,m=len(conditions),len(metrics)
     if not n or not m:
         raise ValueError('Nothing to plot.')
-    figsize=figsize or (11,max(3.8,n*max(.9,.23*m)+1.8))
-    with plt.rc_context({'font.size':11,'pdf.fonttype':42,'ps.fonttype':42}):
+    # Default width is a convenience, not an ACM-mandated dimension.
+    figsize=figsize or (7.0,max(3.0,n*max(.65,.18*m)+1.3))
+    with plt.rc_context(PAPER_STYLE):
         fig,ax=plt.subplots(figsize=figsize,layout='constrained')
         if cmap=='tab10' and m>10:
             cmap='tab20' if m<=20 else 'viridis'
-        colors=plt.get_cmap(cmap)(np.linspace(0,1,m))
+        colors=([PALETTE[j % len(PALETTE)] for j in range(m)]
+                if cmap == 'paper' else plt.get_cmap(cmap)(np.linspace(0,1,m)))
         h=.78/m
         y=np.arange(n)
-        for i,c in enumerate(conditions):
-            if i%2==0:ax.axhspan(i-.46,i+.46,color='#F3F5F7',zorder=0)
         for j,metric in enumerate(metrics):
             part=plotted[plotted.metric==metric].set_index('condition').loc[conditions]
             values=part.plot_mean.to_numpy()
@@ -196,7 +228,9 @@ def plot_grouped_bars(summary, *, scale='none', errorbars='sd', title=None,
             label=(metric_labels or {}).get(metric,LABELS.get(metric,metric))
             if scale=='none':
                 label+= ' [nats]' if metric in NATS else (' [unitless]' if metric in DIMENSIONLESS else '')
-            ax.barh(pos,values,height=h*.9,color=colors[j],label=label,zorder=3)
+            ax.barh(pos,values,height=h*.9,color=colors[j],label=label,zorder=3,
+                    alpha=.85, edgecolor=COLORS['black'], linewidth=.35,
+                    hatch=HATCHES[j % len(HATCHES)] if hatches else None)
             valid_std=np.isfinite(std)
             valid_ci95=np.isfinite(ci95)
             if errorbars=='sd' and valid_std.any():
@@ -208,7 +242,7 @@ def plot_grouped_bars(summary, *, scale='none', errorbars='sd', title=None,
             if annotate:
                 for value,yy in zip(values,pos):
                     ax.annotate(f'{value:.3g}',(value,yy),xytext=(4 if value>=0 else -4,0),
-                                textcoords='offset points',ha='left' if value>=0 else 'right',va='center',fontsize=8)
+                                textcoords='offset points',ha='left' if value>=0 else 'right',va='center',fontsize=7)
         labels=[(condition_labels or {}).get(c,c.replace('loan_','',1).replace('_',' ')) for c in conditions]
         ax.set_yticks(y,labels)
         ax.invert_yaxis()
@@ -217,18 +251,25 @@ def plot_grouped_bars(summary, *, scale='none', errorbars='sd', title=None,
                 'maxabs':'Per-metric value / maximum absolute condition mean'}[scale]
         ax.set_xlabel(xlabel);ax.xaxis.set_major_locator(MaxNLocator(7))
         ax.axvline(0,color='#555555',lw=.9,zorder=2)
-        ax.grid(axis='x',alpha=.25,zorder=0)
+        ax.set_axisbelow(True)
+        ax.grid(axis='x',zorder=0)
         for spine in ['top','right','left']:
             ax.spines[spine].set_visible(False)
         ax.tick_params(axis='y',length=0)
         ax.margins(x=.16 if annotate else .06)
-        ax.legend(loc='upper left',bbox_to_anchor=(1.01,1),frameon=False,title='Metric')
-        notes='Mean across runs' + ('; error bars: ±1 sample SD' if errorbars=='sd' else '; error bars: ±95% CI' if errorbars=='ci95' else '')
+        ax.legend(loc='upper left',bbox_to_anchor=(1.01,1),frameon=False,
+                  fontsize=7,title='Metric',title_fontsize=8)
+        notes='Mean across runs' + ('; error bars: ±1 sample SD' if errorbars=='sd' else '; error bars: pointwise 95% CI' if errorbars=='ci95' else '')
         if (summary.n==1).any():
-            notes+='; SD unavailable for single runs'
+            notes+='; SD/CI unavailable for single runs'
         if any(v['constant_minmax'] for v in parameters.values()):
             notes+='; constant metrics mapped to 0'
-        ax.set_title((title+'\n' if title else '')+notes,loc='left',fontsize=11,pad=14)
+        fig.diagnostic_note = notes
+        heading = [str(title)] if title else []
+        if show_notes:
+            heading.append(textwrap.fill(notes, width=max(30, int(fig.get_figwidth()*14))))
+        if heading:
+            ax.set_title('\n'.join(heading),loc='left',fontsize=9,pad=10)
     return fig,ax,plotted,parameters
 
 
@@ -248,8 +289,10 @@ def main():
     p.add_argument('--out',type=Path,default=Path('figures/uncertainty_bars'),help='Output prefix')
     p.add_argument('--formats',nargs='+',choices=['png','pdf','svg'],default=['png','pdf'])
     p.add_argument('--figsize',nargs=2,type=float)
-    p.add_argument('--cmap',default='tab10')
-    p.add_argument('--dpi',type=int,default=250)
+    p.add_argument('--cmap',default='paper',help='paper uses the reference palette; or supply a Matplotlib colormap')
+    p.add_argument('--no-hatches',action='store_true',help='Disable redundant bar patterns')
+    p.add_argument('--hide-notes',action='store_true',help='Move statistical notes into the manuscript caption')
+    p.add_argument('--dpi',type=int,default=300)
     p.add_argument('--show',action='store_true')
     a=p.parse_args()
     if a.dpi<1 or (a.figsize and any(not np.isfinite(v) or v<=0 for v in a.figsize)):
@@ -270,14 +313,21 @@ def main():
         if a.scale=='minmax':
             warnings.warn('Min-max scaling changes the zero reference and can conceal absolute differences; use raw scale for signed interactions.')
         fig,ax,plotted,scales=plot_grouped_bars(summary,scale=a.scale,errorbars=a.errorbars,
-                          title=a.title,annotate=a.annotate,figsize=a.figsize,cmap=a.cmap)
+                          title=a.title,annotate=a.annotate,figsize=a.figsize,cmap=a.cmap,
+                          hatches=not a.no_hatches,show_notes=not a.hide_notes)
         a.out.parent.mkdir(parents=True,exist_ok=True)
         for fmt in a.formats:
-            path=Path(str(a.out)+'.'+fmt);fig.savefig(path,dpi=a.dpi,bbox_inches='tight')
+            path=Path(str(a.out)+'.'+fmt)
+            # Apply export settings here too: the plotting rc_context has ended.
+            # Avoid tight cropping so --figsize remains the exported physical size.
+            with plt.rc_context({**PAPER_STYLE, 'savefig.bbox': None}):
+                fig.savefig(path,dpi=a.dpi,bbox_inches=None)
             print(path)
         plotted.to_csv(str(a.out)+'_values.csv',index=False)
         settings={k:str(v) if isinstance(v,Path) else v for k,v in vars(a).items()}
         settings['scales']=scales;settings['F_hidden_alias']='hidden_normalized'
+        settings['diagnostic_note']=fig.diagnostic_note
+        settings['effective_figsize_inches']=fig.get_size_inches().tolist()
         Path(str(a.out)+'_settings.json').write_text(json.dumps(settings,indent=2)+'\n')
         if a.show:
             plt.show()

@@ -107,24 +107,13 @@ def add_group_entropy_metrics(audit, *, interaction_weights=None):
 
     weights = None
     if interaction_weights is not None:
-        lookup = {
-            str(g): float(weight)
-            for g, weight in interaction_weights.items()
-        }
+        lookup = {str(g): float(weight) for g, weight in interaction_weights.items()}
         if set(lookup) != {str(g) for g in ids}:
-            raise ValueError(
-                'Interaction weights must cover every audited group exactly.'
-            )
+            raise ValueError('Interaction weights must cover every audited group exactly.')
 
         weights = np.array([lookup[str(g)] for g in ids], dtype=float)
-        if (
-            not np.isfinite(weights).all()
-            or not np.isclose(weights.sum(), 0)
-            or np.abs(weights).sum() == 0
-        ):
-            raise ValueError(
-                'Interaction weights must be finite, nonzero and sum to zero.'
-            )
+        if not np.isfinite(weights).all() or not np.isclose(weights.sum(), 0) or np.abs(weights).sum() == 0:
+            raise ValueError('Interaction weights must be finite, nonzero and sum to zero.')
 
     for component, vector in values.items():
         metric = f'F_{component}'
@@ -132,16 +121,12 @@ def add_group_entropy_metrics(audit, *, interaction_weights=None):
         # The largest absolute pairwise difference equals the range.
         audit['maxima'][metric] = float(vector.max() - vector.min())
 
-        audit[f'I_{component}'] = (
-            float(weights @ vector) if weights is not None else None
-        )
+        audit[f'I_{component}'] = float(weights @ vector) if weights is not None else None
 
         if audit.get('pairs_included', True):
             for a in range(len(ids)):
                 for b in range(a + 1, len(ids)):
                     pair = f'{names[a]}-{names[b]}'
-                    audit['pairs'][pair][metric] = float(
-                        abs(vector[a] - vector[b])
-                    )
+                    audit['pairs'][pair][metric] = float(abs(vector[a] - vector[b]))
 
     return audit

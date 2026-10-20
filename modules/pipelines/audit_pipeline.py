@@ -19,9 +19,10 @@ class AuditConfig:
     positive_class: int = 1
     synthetic_diagnostics: bool = True
     include_pairs: bool = True
+    df_soft: bool = False
 
     def __post_init__(self):
-        for name in ('enabled', 'fairness', 'distribution', 'synthetic_diagnostics', 'include_pairs'):
+        for name in ('enabled', 'fairness', 'distribution', 'synthetic_diagnostics', 'include_pairs', 'df_soft'):
             if type(getattr(self, name)) is not bool:
                 raise ValueError(f'audit.{name} must be boolean')
         if not 0 < self.confidence_alpha < 1:
@@ -84,6 +85,7 @@ def audit_inputs_from_result(result):
 def run_audit(inputs: AuditInputs, config=None):
     """Compute metrics without inference, data loading, or writing files."""
     options = AuditConfig.from_mapping(config)
+    print(f"options.df_soft in run_audit= {options.df_soft}")
     ensemble, labels, groups = inputs.ensemble, inputs.labels, inputs.groups
     probs = np.asarray(ensemble['mean_probs'])
     if probs.ndim != 2 or probs.shape[1] != inputs.num_classes:
@@ -129,7 +131,7 @@ def run_audit(inputs: AuditInputs, config=None):
             evaluate_ensemble_fairness, performance_fairness, classical_fairness_summary)
         kwargs = dict(binary=inputs.binary, threshold=inputs.threshold,
                       positive_class=options.positive_class, alpha=options.smoothing_alpha)
-        fairness = evaluate_ensemble_fairness(ensemble, labels, groups, **kwargs)
+        fairness = evaluate_ensemble_fairness(ensemble, labels, groups, soft=options.df_soft, **kwargs)
         performance = performance_fairness(ensemble, labels, groups, **kwargs)
         additional.update(fairness=fairness, performance_fairness=performance,
                           classical_summary=classical_fairness_summary(fairness, performance))

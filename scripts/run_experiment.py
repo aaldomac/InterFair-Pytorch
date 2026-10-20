@@ -14,8 +14,11 @@ def main():
     parser.add_argument('--seed',type=int)
     parser.add_argument('--dry-run',action='store_true')
     parser.add_argument('--generate-only',action='store_true')
+    parser.add_argument('--soft', type=str.lower, choices=('true', 'false'), default=None, metavar='{True,False}', help='Use soft probabilities for DF; otherwise use hard labels.')
     args = parser.parse_args()
     cfg, output = read_config(args.config)
+    if args.soft is not None:
+        cfg['audit']['df_soft'] = args.soft == 'true'
     conditions, seeds = cfg['conditions'], cfg['data_seeds']
     if args.condition is not None:
         if args.condition not in conditions:

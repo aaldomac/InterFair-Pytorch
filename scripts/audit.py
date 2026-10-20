@@ -153,9 +153,12 @@ def main():
     source.add_argument('--experiment', type=Path, help='Audit all completed runs into a new experiment tree')
     parser.add_argument('--config', type=Path, help='YAML audit settings override the saved settings')
     parser.add_argument('--threshold', type=float)
+    # TODO: The soft argument gets changed somewhere in the pipeline to False
+    parser.add_argument('--soft', type=str.lower, choices=('true', 'false'), default=None, metavar='{True,False}', help='Use soft probabilities for DF; otherwise use hard labels.')
     parser.add_argument('--out', type=Path, required=True)
     parser.add_argument('--overwrite', action='store_true', help='Replace audit outputs in place; requires --out equal to source.')
     args = parser.parse_args()
+    print(f"Args.soft in audit.py: {args.soft}")
     source_path = args.run if args.run is not None else args.experiment
     same_destination = args.out.resolve() == source_path.resolve()
 
@@ -171,6 +174,8 @@ def main():
         overrides = cfg.get('audit', {})
         if threshold is None:
             threshold = cfg.get('pipeline', {}).get('train', {}).get('threshold')
+    if args.soft is None:
+        overrides['df_soft'] = args.soft == 'false'
     if args.run:
         audit_saved_run(args.run, args.out, overrides=overrides, threshold=threshold, overwrite=args.overwrite)
     else:

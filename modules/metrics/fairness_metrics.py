@@ -472,28 +472,97 @@ def _smoothed_positive_rate(
     n_pos = (preds >= threshold).float().sum().item()
     return float((n_pos + alpha) / (n + 2.0 * alpha))
 
+def _class_probabilities(preds, *, threshold=0.5, num_classes=None, soft=False):
+    """Normalize scores/probabilites or explicit class labels to [N,C].
+    Vectors default to binary scores. For integer multiclass labels, specify
+    num_classes explicitly so abstent classes are included consistently.
+    """
+    print(f"_class_probabilities: threshold={threshold}, num_classes={num_classes}, soft={soft}")
+    x = _as_tensor(preds, dtype=torch.float64).detach().cpu()
+    if num_classes is not None:
+        if isinstance(num_classes, bool) or not isinstance(num_classes, int) or num_classes < 2:
+            raise ValueError(f"num_classes must be an integer >= 2, got {num_classes}.")
+    if not math.isfinite(threshold) or not 0 <= threshold <= 1:
+        raise ValueError("threshold must lie in [0,1].")
+    if not torch.isfinite(x).all():
+        raise ValueError("preds must be finite.")
+
+    # Treat [N, 1] inputs as vectors.
+    if x.ndim == 2 and x.shape[1] == 1:
+        x = x[:, 0]
+    # Vector inputs: explicit labels OR binary scores.
+    if x.ndim == 1:
+        if num_classes is not None:
+            if soft:
+                raise ValueError("Soft multiclass input requires [N, C] probabilities.")
+            if (x != x.round()).any() or (x < 0).any() or (x >= num_classes).any():
+                raise ValueError("Class labels must be integers in [0, num_classes).")
+            return torch.nn.functional.one_hot(x.long(), num_classes).double()
+        # WIthout num_classes, a vector represents binary scores.
+        if (x < 0).any() or (x > 1).any():
+            raise ValueError("Binary scores must lie in [0,1]; specify num_classes for class labels.")
+        positive = x if soft else (x >= threshold).double()
+        # Return here: binary vectors must not reach matrix validation.
+        return torch.stack((1 - positive, positive), dim=1)
+    # Remaining inputs must be probability matrices.
+    if x.ndim != 2 or x.shape[1] < 2:
+        raise ValueError(f"Expected scores [N], labels [N], or probabilities [N, C]. Got shape {tuple(x.shape)}.")
+    if num_classes is not None and x.shape[1] != num_classes:
+        raise ValueError(f"Expected {num_classes} classes, got {x.shape[1]} probability values.")
+    if (x < 0).any() or (x > 1).any() or not torch.allclose(x.sum(dim=1), torch.ones(len(x), dtype=x.dtype), atol=1e-6, rtol=1e-5):
+        raise ValueError("Probability rows must lile in [0,1] and sum to one.")
+    if soft:
+        return x
+    labels = (x[:, 1] >= threshold).long() if x.shape[1] == 2 else x.argmax(dim=1)
+    return torch.nn.functional.one_hot(labels, x.shape[1]).double()
+
+def _smoothed_class_rates(probs, alpha):
+    """Dirichlet estimate with alpha pseudo-counts per class, hard or soft."""
+    if not math.isfinite(alpha) or alpha < 0:
+        raise ValueError("alpha must be finite and positive.")
+    n, classes = probs.shape
+    if n == 0:
+        raise ValueError("Cannot estimate class proabibilities from an empty group.")
+    return (probs.sum(dim=0) + alpha) / (n + classes * alpha)
+
+def _class_log_gaps(rates_a, rates_b, eps=None):
+    """Absolute log gaps; shared zeros contribute zero, one-sided zeros infinity."""
+    if eps is not None:
+        if not math.isfinite(eps) or not 0 < eps <= 1:
+            raise ValueError("eps must lie in (0, 1].)")
+        rates_a, rates_b = rates_a.clamp_min(eps), rates_b.clamp_min(eps)
+    # Next 3 lines avoid log(0)-log(0) = NaN for shared zero rates, but still give inf for one-sided zeros.
+    equal = rates_a == rates_b
+    safe_a = torch.where(equal, torch.ones_like(rates_a), rates_a)
+    safe_b = torch.where(equal, torch.ones_like(rates_b), rates_b)
+    return (safe_a.log() - safe_b.log()).abs()
+
+def _group_class_rates(probs, group_ids, alpha):
+    """Compute smoothed class rates for each observed group."""
+    groups_t = _as_1d_tensor(group_ids, dtype=torch.long, name="group_ids").cpu()
+    if len(probs) != len(groups_t):
+        raise ValueError("Predictions and group_ids must have the same sample count.")
+    if not math.isfinite(alpha) or alpha < 0:
+        raise ValueError("alpha must be finite and positive.")
+    groups = _unique_sorted_long(groups_t, name="group_ids")
+    rates = torch.stack([_smoothed_class_rates(probs[groups_t == g], alpha) for g in groups]) if len(groups) else probs.new_empty((0, probs.shape[1]))
+    return rates, groups    
 
 def differential_fairness_two_groups(
     preds_a: torch.Tensor,
     preds_b: torch.Tensor,
     threshold: float = 0.5,
     alpha: float = 1.0,
+    *,
+    num_classes: Optional[int] = None,
+    soft: bool = False,
 ) -> float:
-    """
-    Pairwise epsilon for binary differential fairness.
-
-    epsilon_ab = max(
-        |log P(predicted positive | a) - log P(predicted positive | b)|,
-        |log P(predicted negative | a) - log P(predicted negative | b)|,
-    )
-    """
-    p_a = _smoothed_positive_rate(preds_a, threshold, alpha)
-    p_b = _smoothed_positive_rate(preds_b, threshold, alpha)
-
-    eps_pos = abs(math.log(p_a) - math.log(p_b))
-    eps_neg = abs(math.log(1.0 - p_a) - math.log(1.0 - p_b))
-
-    return max(eps_pos, eps_neg)
+    """Maximum absolute log ratio across classes; see differential_fairness."""
+    a = _class_probabilities(preds_a, threshold=threshold, num_classes=num_classes, soft=soft)
+    b = _class_probabilities(preds_b, threshold=threshold, num_classes=num_classes, soft=soft)
+    if a.shape[1] != b.shape[1]:
+        raise ValueError("Both groups must have the same class universe.")
+    return float(_class_log_gaps(_smoothed_class_rates(a, alpha), _smoothed_class_rates(b, alpha)).max().item())
 
 
 def differential_fairness(
@@ -501,51 +570,33 @@ def differential_fairness(
     group_ids: TensorLike,
     threshold: float = 0.5,
     alpha: float = 1.0,
+    *,
+    num_classes: Optional[int] = None,
+    soft: bool = False,
 ) -> Tuple[float, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """DF = max_{g,h,k} |log q_g(k) - log q_h(k)| over observed groups.
+
+    Accept binary scores [N]/[N, 1], probabilities [N, C], or integer labels
+    [N] with explicit num_classes. Default hard mode thresholds binary scores
+    and takes argmax for C > 2. soft=True averages probabilities instead.
+    q_g(k) = (sum_i p_i(k) + alpha) / (n_g + C*alpha), using one-hot p_i
+    in hard mode. alpha is a per-class pseudo-count. With alpha=0, one-sided
+    zero rates give infinite DF; shared zero rates contribute zero.
+
+    Returns aggregate, [G, G] matrix, sorted groups, [G, C] class rates.
+    Legacy binary score vectors retain their [G] positive-class rate return.
+    Empty input returns empty arrays and zero aggregate; a single observed
+    group also has zero aggregate. Unobserved groups are not estimated.
     """
-    Returns:
-        aggregate: maximum pairwise epsilon across all group pairs
-        epsilon_matrix: [G, G] pairwise DF epsilons
-        groups: group IDs in matrix order
-        group_rates: [G] smoothed P(predicted positive | g)
-    """
-    preds_t = _as_1d_tensor(preds, dtype=torch.float32, name="preds")
-    group_ids_t = _as_1d_tensor(group_ids, dtype=torch.long, name="group_ids")
-    _validate_same_length(preds=preds_t, group_ids=group_ids_t)
-
-    groups = _unique_sorted_long(group_ids_t, name="group_ids")
-
-    if len(groups) == 0:
-        empty_vec = torch.empty(0, dtype=torch.float32)
-        empty_mat = torch.empty((0, 0), dtype=torch.float32)
-        return 0.0, empty_mat, groups, empty_vec
-
-    group_rates = torch.tensor(
-        [_smoothed_positive_rate(preds_t[group_ids_t == g], threshold, alpha) for g in groups],
-        dtype=torch.float32,
-    )
-
-    n_groups = len(groups)
-    epsilon_matrix = torch.zeros((n_groups, n_groups), dtype=torch.float32)
-
-    for i, j in itertools.combinations(range(n_groups), 2):
-        g1, g2 = groups[i], groups[j]
-        preds_g1 = preds_t[group_ids_t == g1]
-        preds_g2 = preds_t[group_ids_t == g2]
-
-        eps_ij = differential_fairness_two_groups(
-            preds_g1,
-            preds_g2,
-            threshold=threshold,
-            alpha=alpha,
-        )
-
-        epsilon_matrix[i, j] = eps_ij
-        epsilon_matrix[j, i] = eps_ij
-
-    aggregate = _max_off_diagonal(epsilon_matrix)
-
-    return aggregate, epsilon_matrix, groups, group_rates
+    raw = _as_tensor(preds)
+    legacy_binary = num_classes is None and (raw.ndim == 1 or (raw.ndim == 2 and raw.shape[1] == 1))
+    print(f"preds: {preds}")
+    probs = _class_probabilities(preds, threshold=threshold, num_classes=num_classes, soft=soft)  # [N, C]
+    print(f"probs: {probs}")
+    rates, groups = _group_class_rates(probs, group_ids, alpha)  # [G, C], [G]
+    matrix = _build_pairwise_matrix(groups, lambda i, j: _class_log_gaps(rates[i], rates[j]).max().item(), diagonal_value=0.0)
+    returned_rates = rates[:, 1] if legacy_binary else rates
+    return _max_off_diagonal(matrix), matrix, groups, returned_rates.float()
 
 
 # ==================================================
@@ -556,27 +607,17 @@ def per_class_fairness_two_groups(
     probs_a: torch.Tensor,
     probs_b: torch.Tensor,
     eps: float = 1e-10,
+    *,
+    alpha: float = 0.0,
 ) -> torch.Tensor:
-    """
-    Per-class absolute log-probability gap between two groups.
-
-    Args:
-        probs_a: [N_a, C]
-        probs_b: [N_b, C]
-
-    Returns:
-        epsilon_vector: [C]
-    """
-    if probs_a.ndim != 2 or probs_b.ndim != 2:
-        raise ValueError("probs_a and probs_b must have shape [N, C].")
-    if probs_a.shape[1] != probs_b.shape[1]:
-        raise ValueError("probs_a and probs_b must have the same number of classes.")
-
-    avg_probs_a = probs_a.float().mean(dim=0)
-    avg_probs_b = probs_b.float().mean(dim=0)
-
-    # return torch.abs(torch.log(avg_probs_a.clamp_min(eps)) - torch.log(avg_probs_b.clamp_min(eps)))
-    return torch.log(avg_probs_a.clamp_min(eps)) - torch.log(avg_probs_b.clamp_min(eps))
+    """Absolute soft log-probability gaps [C]; eps clips zero class rates."""
+    a = _class_probabilities(probs_a, soft=True)
+    b = _class_probabilities(probs_b, soft=True)
+    if a.shape[1] != b.shape[1]:
+        raise ValueError("Both groups must have the same class universe.")
+    return _class_log_gaps(
+        _smoothed_class_rates(a, alpha), _smoothed_class_rates(b, alpha), eps
+    ).float()
 
 
 def per_class_fairness(
@@ -584,39 +625,18 @@ def per_class_fairness(
     group_ids: TensorLike,
     *,
     eps: float = 1e-10,
+    alpha: float = 0.0
 ) -> Tuple[float, torch.Tensor, torch.Tensor]:
+    """Return max absolute soft log gap, symmetric [G, G, C] gaps, and groups.
+
+    Defaults retain unsmoothed means with eps clipping. With matching alpha
+    and inactive clipping, the aggregate equals DF with soft=True. Pass
+    eps=None to disable clipping and match DF's handling of zero rates.
     """
-    Pairwise per-class log-probability fairness.
-
-    Returns:
-        aggregate: max over all group pairs and classes
-        tensor: [G, G, C] pairwise class-wise gaps
-        groups: group IDs in tensor order
-    """
-    probs_t = _as_tensor(probs, dtype=torch.float32)
-    group_ids_t = _as_1d_tensor(group_ids, dtype=torch.long, name="group_ids")
-
-    if probs_t.ndim != 2:
-        raise ValueError(f"probs must have shape [N, C], got {tuple(probs_t.shape)}.")
-    _validate_same_length(probs=probs_t[:, 0], group_ids=group_ids_t)
-
-    groups = _unique_sorted_long(group_ids_t, name="group_ids")
-    n_groups = len(groups)
-    n_classes = probs_t.shape[1]
-
-    tensor = torch.zeros((n_groups, n_groups, n_classes), dtype=torch.float32)
-
-    for i, j in itertools.combinations(range(n_groups), 2):
-        g1, g2 = groups[i], groups[j]
-        gap = per_class_fairness_two_groups(
-            probs_t[group_ids_t == g1],
-            probs_t[group_ids_t == g2],
-            eps=eps,
-        )
-        tensor[i, j, :] = gap
-        tensor[j, i, :] = gap
-    # TODO: Consider if this aggregate makes sense. Because it is not considering the max vector disparity (which is not easy to calculate) but the max element disparity, which may be less meaningful.
-    aggregate = float(tensor.max().item()) if tensor.numel() > 0 else 0.0
+    probabilities = _class_probabilities(probs, soft=True)
+    rates, groups = _group_class_rates(probabilities, group_ids, alpha)
+    tensor = _class_log_gaps(rates[:, None, :], rates[None, :, :], eps).float()
+    aggregate = float(tensor.max().item()) if tensor.numel() else 0.0
     return aggregate, tensor, groups
 
 
@@ -751,6 +771,7 @@ def evaluate_ensemble_fairness(
     threshold: float = 0.5,
     positive_class: int = 1,
     alpha: float = 1.0,
+    soft: bool = False,
 ) -> Dict[str, Any]:
     """Evaluate fairness disparities for ensemble predictions and uncertainties.
 
@@ -768,10 +789,7 @@ def evaluate_ensemble_fairness(
 
     mean_probs = _as_tensor(ensemble_outputs["mean_probs"], dtype=torch.float32, name="mean_probs")
 
-    positive_scores = positive_class_scores(
-        mean_probs,
-        positive_class=positive_class,
-    )
+    positive_scores = positive_class_scores(mean_probs, positive_class=positive_class,)
 
     if binary:
         # Recompute using the requested threshold, ignoring saved argmax labels.
@@ -798,8 +816,22 @@ def evaluate_ensemble_fairness(
     eo_agg, eo_matrix, eo_groups = equal_opportunity(pred_labels, labels_t, group_ids_t, threshold=threshold, positive_class=positive_class,)
 
     eodds_agg, eodds_matrix, eodds_groups = equalized_odds(pred_labels, labels_t, group_ids_t, threshold=threshold, positive_class=positive_class,)
-    df_agg, df_matrix, df_groups, df_group_rates = differential_fairness(positive_scores, group_ids_t, threshold=threshold, alpha=alpha,)
-    ssp = subgroup_statistical_parity(positive_scores, group_ids_t, threshold=threshold,alpha=alpha,)
+    
+    if soft:
+        print("Soft is TRUE. Using mean_probs for differential fairness.")
+        # Compare every class's mean predicted probability.
+        df_input = mean_probs
+        df_num_classes = None
+    else:
+        print("Soft is FALSE. Using positive_scores or pred_labels for differential fairness.")
+        # Preserve existing hard-decision behavior.
+        df_input = positive_scores if binary else pred_labels
+        df_num_classes = None if binary else mean_probs.shape[1]
+    df_agg, df_matrix, df_groups, df_group_rates = differential_fairness(
+        df_input, group_ids_t, threshold=threshold, alpha=alpha, soft=soft,
+        num_classes=df_num_classes,
+        )
+    ssp = subgroup_statistical_parity(positive_scores, group_ids_t, threshold=threshold, alpha=alpha,)
 
     per_class = None
     if mean_probs.ndim == 2:
@@ -887,6 +919,7 @@ def evaluate_ensemble_fairness_from_loader(
     threshold: float = 0.5,
     positive_class: int = 1,
     alpha: float = 1.0,
+    soft: bool = False,
 ) -> Dict[str, Any]:
     """Convenience wrapper for test loaders yielding `(X, y, group_ids)`."""
     labels, group_ids = _extract_labels_and_groups_from_loader(loader)
@@ -898,6 +931,7 @@ def evaluate_ensemble_fairness_from_loader(
         threshold=threshold,
         positive_class=positive_class,
         alpha=alpha,
+        soft=soft,
     )
 
 
