@@ -1,0 +1,4 @@
+audit:
+  fairness: true
+  smoothing_alpha: 0.0
+  disparity_offset: 0.0

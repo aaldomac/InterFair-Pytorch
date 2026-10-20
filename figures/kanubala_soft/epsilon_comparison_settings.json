@@ -1,0 +1,57 @@
+{
+  "input": "experiments/kanubala_audit_soft",
+  "metrics": [
+    "DF_epsilon",
+    "TPR_epsilon",
+    "FPR_epsilon",
+    "Accuracy_epsilon"
+  ],
+  "conditions": null,
+  "condition_col": "condition",
+  "seed_col": "seed",
+  "input_format": "runs",
+  "where": [],
+  "scale": "none",
+  "errorbars": "ci95",
+  "title": null,
+  "annotate": false,
+  "out": "figures/kanubala_soft/epsilon_comparison",
+  "formats": [
+    "png",
+    "pdf"
+  ],
+  "figsize": null,
+  "cmap": "paper",
+  "no_hatches": false,
+  "hide_notes": false,
+  "dpi": 300,
+  "show": false,
+  "scales": {
+    "DF_epsilon": {
+      "offset": 0.0,
+      "factor": 1.0,
+      "constant_minmax": false
+    },
+    "TPR_epsilon": {
+      "offset": 0.0,
+      "factor": 1.0,
+      "constant_minmax": false
+    },
+    "FPR_epsilon": {
+      "offset": 0.0,
+      "factor": 1.0,
+      "constant_minmax": false
+    },
+    "Accuracy_epsilon": {
+      "offset": 0.0,
+      "factor": 1.0,
+      "constant_minmax": false
+    }
+  },
+  "F_hidden_alias": "hidden_normalized",
+  "diagnostic_note": "Mean across runs; error bars: pointwise 95% CI",
+  "effective_figsize_inches": [
+    7.0,
+    4.8999999999999995
+  ]
+}
