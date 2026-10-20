@@ -1,0 +1,40 @@
+{
+  "Female-minus-Male_race0_country0": {
+    "0_0_0": -1,
+    "1_0_0": 1
+  },
+  "Female-minus-Male_race0_country1": {
+    "0_0_1": -1,
+    "1_0_1": 1
+  },
+  "Female-minus-Male_race1_country0": {
+    "0_1_0": -1,
+    "1_1_0": 1
+  },
+  "Female-minus-Male_race1_country1": {
+    "0_1_1": -1,
+    "1_1_1": 1
+  },
+  "Race-country_interaction_gender0": {
+    "0_0_0": 1,
+    "0_0_1": -1,
+    "0_1_0": -1,
+    "0_1_1": 1
+  },
+  "Race-country_interaction_gender1": {
+    "1_0_0": 1,
+    "1_0_1": -1,
+    "1_1_0": -1,
+    "1_1_1": 1
+  },
+  "Three-way_Female-minus-Male_interaction": {
+    "0_0_0": -1,
+    "0_0_1": 1,
+    "0_1_0": 1,
+    "0_1_1": -1,
+    "1_0_0": 1,
+    "1_0_1": -1,
+    "1_1_0": -1,
+    "1_1_1": 1
+  }
+}

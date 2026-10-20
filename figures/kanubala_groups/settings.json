@@ -1,0 +1,30 @@
+{
+  "input": "experiments/kanubala",
+  "metrics": [
+    "U_epis",
+    "U_alea",
+    "U_het",
+    "U_mix"
+  ],
+  "conditions": null,
+  "seeds": null,
+  "groups": null,
+  "list_metrics": false,
+  "out": "figures/kanubala_groups",
+  "formats": [
+    "png",
+    "pdf"
+  ],
+  "layout": "combined",
+  "ncols": 1,
+  "errorbars": "sd",
+  "annotate": true,
+  "conditions_in_file_order": [
+    "loan_additive",
+    "loan_compounded",
+    "loan_intersectional",
+    "loan_no_bias",
+    "loan_single"
+  ],
+  "aggregation": "Equal run weights within condition/group; incomplete bars NA"
+}

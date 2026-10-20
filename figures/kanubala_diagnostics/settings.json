@@ -1,0 +1,1360 @@
+{
+  "input": "experiments/kanubala",
+  "out": "figures/kanubala_diagnostics",
+  "conditions": null,
+  "seeds": null,
+  "high_confidence": 0.5,
+  "bins": 10,
+  "metrics": [
+    "U_alea",
+    "U_epis",
+    "accuracy",
+    "TPR",
+    "high_conf_error_rate"
+  ],
+  "contrasts": "configs/diagnostics/kanubala_contrasts.json",
+  "class_names": null,
+  "errorbars": "ci95",
+  "formats": [
+    "png",
+    "pdf"
+  ],
+  "runs": [
+    {
+      "condition": "loan_additive",
+      "seed": "100",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_additive/seed_100",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 100,
+        "model_seeds": [
+          1500,
+          1501,
+          1502,
+          1503,
+          1504
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_additive",
+      "seed": "11",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_additive/seed_11",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 11,
+        "model_seeds": [
+          1055,
+          1056,
+          1057,
+          1058,
+          1059
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_additive",
+      "seed": "123",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_additive/seed_123",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 123,
+        "model_seeds": [
+          1615,
+          1616,
+          1617,
+          1618,
+          1619
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_additive",
+      "seed": "1234",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_additive/seed_1234",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 1234,
+        "model_seeds": [
+          7170,
+          7171,
+          7172,
+          7173,
+          7174
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_additive",
+      "seed": "2024",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_additive/seed_2024",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 2024,
+        "model_seeds": [
+          11120,
+          11121,
+          11122,
+          11123,
+          11124
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_additive",
+      "seed": "3456",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_additive/seed_3456",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 3456,
+        "model_seeds": [
+          18280,
+          18281,
+          18282,
+          18283,
+          18284
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_additive",
+      "seed": "42",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_additive/seed_42",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 42,
+        "model_seeds": [
+          1210,
+          1211,
+          1212,
+          1213,
+          1214
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_additive",
+      "seed": "5678",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_additive/seed_5678",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 5678,
+        "model_seeds": [
+          29390,
+          29391,
+          29392,
+          29393,
+          29394
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_additive",
+      "seed": "789",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_additive/seed_789",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 789,
+        "model_seeds": [
+          4945,
+          4946,
+          4947,
+          4948,
+          4949
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_additive",
+      "seed": "999",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_additive/seed_999",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 999,
+        "model_seeds": [
+          5995,
+          5996,
+          5997,
+          5998,
+          5999
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_compounded",
+      "seed": "100",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_compounded/seed_100",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 100,
+        "model_seeds": [
+          1500,
+          1501,
+          1502,
+          1503,
+          1504
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_compounded",
+      "seed": "11",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_compounded/seed_11",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 11,
+        "model_seeds": [
+          1055,
+          1056,
+          1057,
+          1058,
+          1059
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_compounded",
+      "seed": "123",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_compounded/seed_123",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 123,
+        "model_seeds": [
+          1615,
+          1616,
+          1617,
+          1618,
+          1619
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_compounded",
+      "seed": "1234",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_compounded/seed_1234",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 1234,
+        "model_seeds": [
+          7170,
+          7171,
+          7172,
+          7173,
+          7174
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_compounded",
+      "seed": "2024",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_compounded/seed_2024",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 2024,
+        "model_seeds": [
+          11120,
+          11121,
+          11122,
+          11123,
+          11124
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_compounded",
+      "seed": "3456",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_compounded/seed_3456",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 3456,
+        "model_seeds": [
+          18280,
+          18281,
+          18282,
+          18283,
+          18284
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_compounded",
+      "seed": "42",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_compounded/seed_42",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 42,
+        "model_seeds": [
+          1210,
+          1211,
+          1212,
+          1213,
+          1214
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_compounded",
+      "seed": "5678",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_compounded/seed_5678",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 5678,
+        "model_seeds": [
+          29390,
+          29391,
+          29392,
+          29393,
+          29394
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_compounded",
+      "seed": "789",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_compounded/seed_789",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 789,
+        "model_seeds": [
+          4945,
+          4946,
+          4947,
+          4948,
+          4949
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_compounded",
+      "seed": "999",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_compounded/seed_999",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 999,
+        "model_seeds": [
+          5995,
+          5996,
+          5997,
+          5998,
+          5999
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_intersectional",
+      "seed": "100",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_intersectional/seed_100",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 100,
+        "model_seeds": [
+          1500,
+          1501,
+          1502,
+          1503,
+          1504
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_intersectional",
+      "seed": "11",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_intersectional/seed_11",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 11,
+        "model_seeds": [
+          1055,
+          1056,
+          1057,
+          1058,
+          1059
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_intersectional",
+      "seed": "123",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_intersectional/seed_123",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 123,
+        "model_seeds": [
+          1615,
+          1616,
+          1617,
+          1618,
+          1619
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_intersectional",
+      "seed": "1234",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_intersectional/seed_1234",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 1234,
+        "model_seeds": [
+          7170,
+          7171,
+          7172,
+          7173,
+          7174
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_intersectional",
+      "seed": "2024",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_intersectional/seed_2024",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 2024,
+        "model_seeds": [
+          11120,
+          11121,
+          11122,
+          11123,
+          11124
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_intersectional",
+      "seed": "3456",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_intersectional/seed_3456",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 3456,
+        "model_seeds": [
+          18280,
+          18281,
+          18282,
+          18283,
+          18284
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_intersectional",
+      "seed": "42",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_intersectional/seed_42",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 42,
+        "model_seeds": [
+          1210,
+          1211,
+          1212,
+          1213,
+          1214
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_intersectional",
+      "seed": "5678",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_intersectional/seed_5678",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 5678,
+        "model_seeds": [
+          29390,
+          29391,
+          29392,
+          29393,
+          29394
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_intersectional",
+      "seed": "789",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_intersectional/seed_789",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 789,
+        "model_seeds": [
+          4945,
+          4946,
+          4947,
+          4948,
+          4949
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_intersectional",
+      "seed": "999",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_intersectional/seed_999",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 999,
+        "model_seeds": [
+          5995,
+          5996,
+          5997,
+          5998,
+          5999
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_no_bias",
+      "seed": "100",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_no_bias/seed_100",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 100,
+        "model_seeds": [
+          1500,
+          1501,
+          1502,
+          1503,
+          1504
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_no_bias",
+      "seed": "11",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_no_bias/seed_11",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 11,
+        "model_seeds": [
+          1055,
+          1056,
+          1057,
+          1058,
+          1059
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_no_bias",
+      "seed": "123",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_no_bias/seed_123",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 123,
+        "model_seeds": [
+          1615,
+          1616,
+          1617,
+          1618,
+          1619
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_no_bias",
+      "seed": "1234",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_no_bias/seed_1234",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 1234,
+        "model_seeds": [
+          7170,
+          7171,
+          7172,
+          7173,
+          7174
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_no_bias",
+      "seed": "2024",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_no_bias/seed_2024",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 2024,
+        "model_seeds": [
+          11120,
+          11121,
+          11122,
+          11123,
+          11124
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_no_bias",
+      "seed": "3456",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_no_bias/seed_3456",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 3456,
+        "model_seeds": [
+          18280,
+          18281,
+          18282,
+          18283,
+          18284
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_no_bias",
+      "seed": "42",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_no_bias/seed_42",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 42,
+        "model_seeds": [
+          1210,
+          1211,
+          1212,
+          1213,
+          1214
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_no_bias",
+      "seed": "5678",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_no_bias/seed_5678",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 5678,
+        "model_seeds": [
+          29390,
+          29391,
+          29392,
+          29393,
+          29394
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_no_bias",
+      "seed": "789",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_no_bias/seed_789",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 789,
+        "model_seeds": [
+          4945,
+          4946,
+          4947,
+          4948,
+          4949
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_no_bias",
+      "seed": "999",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_no_bias/seed_999",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 999,
+        "model_seeds": [
+          5995,
+          5996,
+          5997,
+          5998,
+          5999
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_single",
+      "seed": "100",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_single/seed_100",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 100,
+        "model_seeds": [
+          1500,
+          1501,
+          1502,
+          1503,
+          1504
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_single",
+      "seed": "11",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_single/seed_11",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 11,
+        "model_seeds": [
+          1055,
+          1056,
+          1057,
+          1058,
+          1059
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_single",
+      "seed": "123",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_single/seed_123",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 123,
+        "model_seeds": [
+          1615,
+          1616,
+          1617,
+          1618,
+          1619
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_single",
+      "seed": "1234",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_single/seed_1234",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 1234,
+        "model_seeds": [
+          7170,
+          7171,
+          7172,
+          7173,
+          7174
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_single",
+      "seed": "2024",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_single/seed_2024",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 2024,
+        "model_seeds": [
+          11120,
+          11121,
+          11122,
+          11123,
+          11124
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_single",
+      "seed": "3456",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_single/seed_3456",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 3456,
+        "model_seeds": [
+          18280,
+          18281,
+          18282,
+          18283,
+          18284
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_single",
+      "seed": "42",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_single/seed_42",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 42,
+        "model_seeds": [
+          1210,
+          1211,
+          1212,
+          1213,
+          1214
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_single",
+      "seed": "5678",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_single/seed_5678",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 5678,
+        "model_seeds": [
+          29390,
+          29391,
+          29392,
+          29393,
+          29394
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_single",
+      "seed": "789",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_single/seed_789",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 789,
+        "model_seeds": [
+          4945,
+          4946,
+          4947,
+          4948,
+          4949
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "loan_single",
+      "seed": "999",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/kanubala/runs/loan_single/seed_999",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "00",
+        "1": "01",
+        "2": "10",
+        "3": "11"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 999,
+        "model_seeds": [
+          5995,
+          5996,
+          5997,
+          5998,
+          5999
+        ],
+        "method": "deep_ensemble"
+      }
+    }
+  ],
+  "contrasts_resolved": {
+    "S1_difference_at_S2_0": {
+      "00": -1,
+      "10": 1
+    },
+    "S1_difference_at_S2_1": {
+      "01": -1,
+      "11": 1
+    },
+    "S2_difference_at_S1_0": {
+      "00": -1,
+      "01": 1
+    },
+    "S2_difference_at_S1_1": {
+      "10": -1,
+      "11": 1
+    },
+    "S1_S2_interaction": {
+      "00": 1,
+      "10": -1,
+      "01": -1,
+      "11": 1
+    }
+  },
+  "condition_file_order": [
+    "loan_additive",
+    "loan_compounded",
+    "loan_intersectional",
+    "loan_no_bias",
+    "loan_single"
+  ],
+  "confidence_definition": "Probability assigned to chosen decision",
+  "standardization": "Uniform true-class weights; absent classes give NA",
+  "interval": "Pointwise Student-t CI across complete run estimates, not simultaneous/population CI",
+  "brier": "Binary: class-1 squared error; multiclass: sum of squared class errors",
+  "reliability": "Equal-run averages over occupied fixed-width bins; bin support exported"
+}

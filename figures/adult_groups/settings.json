@@ -1,0 +1,28 @@
+{
+  "input": "experiments/adult_binary_attrs",
+  "metrics": [
+    "U_epis",
+    "U_alea",
+    "U_mix",
+    "U_het"
+  ],
+  "conditions": null,
+  "seeds": null,
+  "groups": null,
+  "list_metrics": false,
+  "out": "figures/adult_groups",
+  "formats": [
+    "png",
+    "pdf"
+  ],
+  "layout": "separate",
+  "ncols": 1,
+  "errorbars": "sd",
+  "annotate": true,
+  "conditions_in_file_order": [
+    "baseline"
+  ],
+  "aggregation": "Equal run weights within condition/group; incomplete bars NA",
+  "ci_method": "Pointwise two-sided Student-t, df=n_runs-1, 95%; across run means",
+  "ci_confidence": 0.95
+}

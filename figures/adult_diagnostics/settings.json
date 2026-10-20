@@ -1,0 +1,374 @@
+{
+  "input": "experiments/adult_binary_attrs",
+  "out": "figures/adult_diagnostics",
+  "conditions": null,
+  "seeds": null,
+  "high_confidence": 0.9,
+  "bins": 10,
+  "metrics": [
+    "U_alea",
+    "U_epis",
+    "accuracy",
+    "high_conf_error_rate"
+  ],
+  "contrasts": "configs/diagnostics/adult_contrasts.json",
+  "class_names": [
+    ">50K",
+    "<=50K"
+  ],
+  "errorbars": "ci95",
+  "formats": [
+    "png",
+    "pdf"
+  ],
+  "runs": [
+    {
+      "condition": "baseline",
+      "seed": "0",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/adult_binary_attrs/runs/baseline/seed_0",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "0_0_0",
+        "1": "0_0_1",
+        "2": "0_1_0",
+        "3": "0_1_1",
+        "4": "1_0_0",
+        "5": "1_0_1",
+        "6": "1_1_0",
+        "7": "1_1_1"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 0,
+        "model_seeds": [
+          1000,
+          1001,
+          1002,
+          1003,
+          1004
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "baseline",
+      "seed": "1",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/adult_binary_attrs/runs/baseline/seed_1",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "0_0_0",
+        "1": "0_0_1",
+        "2": "0_1_0",
+        "3": "0_1_1",
+        "4": "1_0_0",
+        "5": "1_0_1",
+        "6": "1_1_0",
+        "7": "1_1_1"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 1,
+        "model_seeds": [
+          1005,
+          1006,
+          1007,
+          1008,
+          1009
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "baseline",
+      "seed": "2",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/adult_binary_attrs/runs/baseline/seed_2",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "0_0_0",
+        "1": "0_0_1",
+        "2": "0_1_0",
+        "3": "0_1_1",
+        "4": "1_0_0",
+        "5": "1_0_1",
+        "6": "1_1_0",
+        "7": "1_1_1"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 2,
+        "model_seeds": [
+          1010,
+          1011,
+          1012,
+          1013,
+          1014
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "baseline",
+      "seed": "3",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/adult_binary_attrs/runs/baseline/seed_3",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "0_0_0",
+        "1": "0_0_1",
+        "2": "0_1_0",
+        "3": "0_1_1",
+        "4": "1_0_0",
+        "5": "1_0_1",
+        "6": "1_1_0",
+        "7": "1_1_1"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 3,
+        "model_seeds": [
+          1015,
+          1016,
+          1017,
+          1018,
+          1019
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "baseline",
+      "seed": "4",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/adult_binary_attrs/runs/baseline/seed_4",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "0_0_0",
+        "1": "0_0_1",
+        "2": "0_1_0",
+        "3": "0_1_1",
+        "4": "1_0_0",
+        "5": "1_0_1",
+        "6": "1_1_0",
+        "7": "1_1_1"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 4,
+        "model_seeds": [
+          1020,
+          1021,
+          1022,
+          1023,
+          1024
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "baseline",
+      "seed": "5",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/adult_binary_attrs/runs/baseline/seed_5",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "0_0_0",
+        "1": "0_0_1",
+        "2": "0_1_0",
+        "3": "0_1_1",
+        "4": "1_0_0",
+        "5": "1_0_1",
+        "6": "1_1_0",
+        "7": "1_1_1"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 5,
+        "model_seeds": [
+          1025,
+          1026,
+          1027,
+          1028,
+          1029
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "baseline",
+      "seed": "6",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/adult_binary_attrs/runs/baseline/seed_6",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "0_0_0",
+        "1": "0_0_1",
+        "2": "0_1_0",
+        "3": "0_1_1",
+        "4": "1_0_0",
+        "5": "1_0_1",
+        "6": "1_1_0",
+        "7": "1_1_1"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 6,
+        "model_seeds": [
+          1030,
+          1031,
+          1032,
+          1033,
+          1034
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "baseline",
+      "seed": "7",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/adult_binary_attrs/runs/baseline/seed_7",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "0_0_0",
+        "1": "0_0_1",
+        "2": "0_1_0",
+        "3": "0_1_1",
+        "4": "1_0_0",
+        "5": "1_0_1",
+        "6": "1_1_0",
+        "7": "1_1_1"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 7,
+        "model_seeds": [
+          1035,
+          1036,
+          1037,
+          1038,
+          1039
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "baseline",
+      "seed": "8",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/adult_binary_attrs/runs/baseline/seed_8",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "0_0_0",
+        "1": "0_0_1",
+        "2": "0_1_0",
+        "3": "0_1_1",
+        "4": "1_0_0",
+        "5": "1_0_1",
+        "6": "1_1_0",
+        "7": "1_1_1"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 8,
+        "model_seeds": [
+          1040,
+          1041,
+          1042,
+          1043,
+          1044
+        ],
+        "method": "deep_ensemble"
+      }
+    },
+    {
+      "condition": "baseline",
+      "seed": "9",
+      "run": "/home/aaldoma/Projects/InterFairPytorch/experiments/adult_binary_attrs/runs/baseline/seed_9",
+      "threshold": 0.5,
+      "positive_class": 1,
+      "classes": 2,
+      "group_names": {
+        "0": "0_0_0",
+        "1": "0_0_1",
+        "2": "0_1_0",
+        "3": "0_1_1",
+        "4": "1_0_0",
+        "5": "1_0_1",
+        "6": "1_1_0",
+        "7": "1_1_1"
+      },
+      "decision_policy": "Binary column-1 threshold (ensemble_quality); multiclass argmax",
+      "provenance": {
+        "data_seed": 9,
+        "model_seeds": [
+          1045,
+          1046,
+          1047,
+          1048,
+          1049
+        ],
+        "method": "deep_ensemble"
+      }
+    }
+  ],
+  "contrasts_resolved": {
+    "Female-minus-Male_race0_country0": {
+      "0_0_0": -1,
+      "1_0_0": 1
+    },
+    "Female-minus-Male_race0_country1": {
+      "0_0_1": -1,
+      "1_0_1": 1
+    },
+    "Female-minus-Male_race1_country0": {
+      "0_1_0": -1,
+      "1_1_0": 1
+    },
+    "Female-minus-Male_race1_country1": {
+      "0_1_1": -1,
+      "1_1_1": 1
+    },
+    "Race-country_interaction_gender0": {
+      "0_0_0": 1,
+      "0_0_1": -1,
+      "0_1_0": -1,
+      "0_1_1": 1
+    },
+    "Race-country_interaction_gender1": {
+      "1_0_0": 1,
+      "1_0_1": -1,
+      "1_1_0": -1,
+      "1_1_1": 1
+    },
+    "Three-way_Female-minus-Male_interaction": {
+      "0_0_0": -1,
+      "0_0_1": 1,
+      "0_1_0": 1,
+      "0_1_1": -1,
+      "1_0_0": 1,
+      "1_0_1": -1,
+      "1_1_0": -1,
+      "1_1_1": 1
+    }
+  },
+  "condition_file_order": [
+    "baseline"
+  ],
+  "confidence_definition": "Probability assigned to chosen decision",
+  "standardization": "Uniform true-class weights; absent classes give NA",
+  "interval": "Pointwise Student-t CI across complete run estimates, not simultaneous/population CI",
+  "brier": "Binary: class-1 squared error; multiclass: sum of squared class errors",
+  "reliability": "Equal-run averages over occupied fixed-width bins; bin support exported"
+}
