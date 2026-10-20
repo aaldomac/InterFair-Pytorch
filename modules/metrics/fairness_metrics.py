@@ -727,7 +727,14 @@ def subgroup_uncertainty_difference(
         dtype=torch.long,
         device=group_ids_t.device,
     )
-    _, group_probs = compute_pg_dirichlet_from_groups(contiguous, K=len(groups), alpha=alpha)
+    if not math.isfinite(alpha) or alpha < 0:
+        raise ValueError("alpha must be finite and non-negative.")
+
+    if alpha == 0:
+        counts = torch.bincount(contiguous, minlength=len(groups)).float()
+        group_probs = counts / counts.sum()
+    else:
+        _, group_probs = compute_pg_dirichlet_from_groups(contiguous, K=len(groups), alpha=alpha)
     group_probs = group_probs.detach().cpu().float()
 
     group_uncertainties = torch.tensor(
