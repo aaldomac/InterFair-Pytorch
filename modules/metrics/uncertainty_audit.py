@@ -40,14 +40,16 @@ def audit_uncertainties(ensemble: Dict[str, np.ndarray], groups: Union[List, np.
     # means = np.array([u[groups == g].mean(axis=0) for g in ids])  # shape: (n_groups, 3) -> [mean U ale, mean U epi, mean U tot] per group
     means = sums / counts[:, None]  # shape: (n_groups, 3) -> [mean U ale, mean U epi, mean U tot] per group
     pairs = {}
-    maxima = dict(F_alea=0., F_epis=0., F_tot=0., F_U=0., hidden_normalized=0.)
+    maxima = dict(F_alea=0., F_epis=0., F_tot=0., F_U=0., hidden_raw=0., hidden_normalized=0.)
     for a in range(len(ids)):
         for b in range(a+1, len(ids)):
             da, de, dt = means[a] - means[b]
+            hidden_raw = max(0., abs(da) + abs(de) - abs(dt))
             values = dict(
                 F_alea=float(abs(da)), F_epis=float(abs(de)), F_tot=float(abs(dt)),
                 F_U=float(max(abs(da), abs(de))/bound),
-                hidden_normalized=float(max(0., abs(da)+abs(de)-abs(dt))/(2*bound)))
+                hidden_raw=hidden_raw,
+                hidden_normalized=hidden_raw/(2*bound))
             for key, value in values.items():
                 maxima[key] = max(maxima[key], value)
             if include_pairs:

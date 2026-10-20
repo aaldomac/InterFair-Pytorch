@@ -55,16 +55,16 @@ PAPER_STYLE = {
     "pdf.fonttype": 42, "ps.fonttype": 42,
 }
 
-ALIASES = {'F_hidden': 'hidden_normalized'}
+ALIASES = {'F_hidden': 'hidden_normalized', 'F_hidden_raw': 'hidden_raw', 'F_hidden_normalized': 'hidden_normalized'}
 LABELS = {
  'F_tot':r'$F_{\mathrm{tot}}$', 'F_alea':r'$F_{\mathrm{alea}}$',
  'F_epis':r'$F_{\mathrm{epis}}$', 'F_U':r'$F_U$', 'F_mix':r'$F_{\mathrm{mix}}$', 'F_het':r'$F_{\mathrm{het}}$',
- 'hidden_normalized':r'$F_{\mathrm{hidden}}$', 'F_U_int':r'$F_{U,\mathrm{int}}$',
+ 'hidden_normalized': r'$F_{\mathrm{hidden}}^{\mathrm{norm}}$', 'hidden_raw': r'$F_{\mathrm{hidden}}^{\mathrm{raw}}$', 'F_U_int':r'$F_{U,\mathrm{int}}$',
  'I_alea':r'$\mathcal{I}_{\mathrm{alea}}$', 'I_epis':r'$\mathcal{I}_{\mathrm{epis}}$',
  'I_tot':r'$\mathcal{I}_{\mathrm{tot}}$', 'I_oracle':r'$\mathcal{I}_{\mathrm{oracle}}$',
  'I_mix':r'$\mathcal{I}_{\mathrm{mix}}$', 'I_het':r'$\mathcal{I}_{\mathrm{het}}$',}
 NATS = {'F_tot','F_alea','F_epis', 'F_mix', 'F_het','I_alea','I_epis','I_tot','I_oracle', 'I_mix', 'I_het',
-        'alea','epis','tot','oracle','alea_error','delta_alea','delta_epis','delta_tot'}
+        'alea','epis','tot','oracle','alea_error','delta_alea','delta_epis','delta_tot','hidden_raw'}
 DIMENSIONLESS = {'F_U','hidden_normalized','F_U_int'}
 
 def read_results(source):
@@ -76,8 +76,6 @@ def read_results(source):
         from modules.utils.reporting_utils import read_run_summaries
         frame = read_run_summaries(source)
         frame = frame.rename(columns={'data_seed':'seed'})
-        if 'hidden_normalized' in frame:
-            frame['F_hidden'] = frame['hidden_normalized']
         return frame
     # TODO: Consider if csv file should be /all_runs.csv
     if (source/'runs.csv').is_file():
@@ -201,7 +199,8 @@ def plot_grouped_bars(summary, *, scale='none', errorbars='sd', title=None,
     from matplotlib.ticker import MaxNLocator
     if errorbars not in ('sd','ci95','none'):
         raise ValueError('errorbars must be sd, ci95, or none.')
-    conditions=list(dict.fromkeys(summary.condition))
+    # conditions=list(dict.fromkeys(summary.condition))
+    conditions = ['loan_compounded', 'loan_intersectional', 'loan_additive', 'loan_single', 'loan_no_bias']
     metrics=list(dict.fromkeys(summary.metric))
     if summary.duplicated(['condition','metric']).any() or len(summary)!=len(conditions)*len(metrics):
         raise ValueError('Summary must have one row per condition/metric pair.')
@@ -246,7 +245,7 @@ def plot_grouped_bars(summary, *, scale='none', errorbars='sd', title=None,
         labels=[(condition_labels or {}).get(c,c.replace('loan_','',1).replace('_',' ')) for c in conditions]
         ax.set_yticks(y,labels)
         ax.invert_yaxis()
-        ax.set_ylabel('Condition')
+        # ax.set_ylabel('Condition')
         xlabel={'none':'Metric value (units in legend)','minmax':'Per-metric min–max scaled value',
                 'maxabs':'Per-metric value / maximum absolute condition mean'}[scale]
         ax.set_xlabel(xlabel);ax.xaxis.set_major_locator(MaxNLocator(7))
@@ -257,8 +256,10 @@ def plot_grouped_bars(summary, *, scale='none', errorbars='sd', title=None,
             ax.spines[spine].set_visible(False)
         ax.tick_params(axis='y',length=0)
         ax.margins(x=.16 if annotate else .06)
-        ax.legend(loc='upper left',bbox_to_anchor=(1.01,1),frameon=False,
-                  fontsize=7,title='Metric',title_fontsize=8)
+        # ax.legend(loc='upper left',bbox_to_anchor=(1.01,1),frameon=False,
+        #           fontsize=7,title='Metric',title_fontsize=8)
+        # Place the legend inside the figure where it does not overlap the bars, and avoid a title that is redundant with the axis label.
+        ax.legend(loc='lower right',frameon=False,fontsize=7)
         notes='Mean across runs' + ('; error bars: ±1 sample SD' if errorbars=='sd' else '; error bars: pointwise 95% CI' if errorbars=='ci95' else '')
         if (summary.n==1).any():
             notes+='; SD/CI unavailable for single runs'
@@ -276,7 +277,7 @@ def plot_grouped_bars(summary, *, scale='none', errorbars='sd', title=None,
 def main():
     p=argparse.ArgumentParser(description=__doc__,formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('--input',required=True,type=Path)
-    p.add_argument('--metrics',nargs='+',default=['F_tot','F_U','F_hidden','F_U_int','I_alea','I_tot'])
+    p.add_argument('--metrics',nargs='+',default=['F_tot','F_U','F_hidden_normalized','F_U_int','I_alea','I_tot'])
     p.add_argument('--conditions',nargs='+',help='Exact condition IDs, in desired top-to-bottom order')
     p.add_argument('--condition-col',default='condition')
     p.add_argument('--seed-col',default='seed')
@@ -326,6 +327,7 @@ def main():
         plotted.to_csv(str(a.out)+'_values.csv',index=False)
         settings={k:str(v) if isinstance(v,Path) else v for k,v in vars(a).items()}
         settings['scales']=scales;settings['F_hidden_alias']='hidden_normalized'
+        settings['metric_aliases'] = dict(ALIASES)
         settings['diagnostic_note']=fig.diagnostic_note
         settings['effective_figsize_inches']=fig.get_size_inches().tolist()
         Path(str(a.out)+'_settings.json').write_text(json.dumps(settings,indent=2)+'\n')

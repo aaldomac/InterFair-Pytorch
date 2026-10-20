@@ -32,6 +32,9 @@ class SyntheticTests(unittest.TestCase):
         audit = audit_uncertainties(ensemble, np.arange(4))
         self.assertAlmostEqual(audit['pairs']['0-3']['hidden_normalized'],1.)
         self.assertAlmostEqual(audit['maxima']['F_tot'],0.)
+        self.assertAlmostEqual(audit['pairs']['0-3']['hidden_raw'], 2 * LOG2)
+        self.assertAlmostEqual(audit['maxima']['hidden_raw'], 2 * LOG2)
+        self.assertAlmostEqual(audit['maxima']['hidden_normalized'], 1.)
 
 
 @unittest.skipUnless(importlib.util.find_spec('torch'), 'PyTorch is not installed')

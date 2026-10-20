@@ -18,7 +18,7 @@ import pandas as pd
 from modules.utils.reporting_utils import latex_escape, mean_std_table, latex_table, aggregate
 
 QUALITY = ['accuracy', 'nll', 'brier']
-DISPARITY = ['F_alea', 'F_epis', 'F_tot', 'F_U', 'hidden_normalized', 'F_U_int']
+DISPARITY = ['F_alea', 'F_epis', 'F_tot', 'F_U', 'hidden_raw', 'hidden_normalized', 'F_U_int']
 GROUPS = ['00', '01', '10', '11']
 COMPONENTS = ['alea', 'epis', 'tot']
 
@@ -54,6 +54,13 @@ def load_results(folder, conditions=None):
             continue
         try:
             audit = read_json(path/('audit' if (path/'audit').exists() else 'synthetic_audit')/'uncertainty_audit.json')
+            # Older audits stored only the normalized hidden disparity.
+            if 'hidden_raw' not in audit['maxima']:
+                audit['maxima']['hidden_raw'] = (2 * audit['normalization'] * audit['maxima']['hidden_normalized'])
+
+            for values in audit.get('pairs', {}).values():
+                if 'hidden_raw' not in values:
+                    values['hidden_raw'] = (2 * audit['normalization'] * values['hidden_normalized'])
             quality = read_json(path/('audit' if (path/'audit').exists() else 'synthetic_audit')/'predictive_metrics.json')
             meta = read_json(path/'synthetic_data'/'metadata.json')
             seed = int(path.name.removeprefix('seed_'))
@@ -159,7 +166,7 @@ def build_report(runs, groups, pairs, digits=4, show_pairs=False):
     notes='''INTERPRETATION
 Accuracy is a fraction (higher is better); NLL and class-1 Brier are lower-is-better.
 All predictive metrics describe the ensemble mean, not member zero.
-U means, F_alea/F_epis/F_tot and signed interactions I_* are in nats.
+U means, F_alea/F_epis/F_tot/F_hidden and signed interactions I_* are in nats.
 F_U, hidden_normalized and F_U_int are normalized, dimensionless disparities.
 Each worst-pair metric is maximized BEFORE averaging runs; different metrics may select different pairs.
 I_oracle is the DGP entropy interaction; alea_error is learned mean aleatoric minus oracle entropy.
