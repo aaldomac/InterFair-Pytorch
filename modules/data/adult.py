@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+from dataclasses import replace
+import math
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import pandas as pd
@@ -58,7 +60,9 @@ def load_raw_adult(drop_na: bool = True, csv_path=None) -> Tuple[pd.DataFrame, L
 
 
 
-def preprocess_adult(df: pd.DataFrame, positive_label: str = "<=50K", binary_attrs: bool = True) -> Tuple[pd.DataFrame, Dict[str, int]]:
+def preprocess_adult(df: pd.DataFrame, positive_label: str = "<=50K", binary_attrs: bool = True,
+                     protected_cols: Sequence[str] = ("gender", "race", "native-country"), 
+                     age_lower: float = 25, age_upper: float=60) -> Tuple[pd.DataFrame, Dict[str, int]]:
     """
     Preprocess the Adult Income dataset.
 
@@ -66,6 +70,8 @@ def preprocess_adult(df: pd.DataFrame, positive_label: str = "<=50K", binary_att
     - strips column names and string values
     - encodes protected attributes
     - binarizes native-country into US vs non-US
+    - optionally groups age as inside (0) or outside (1) inclusive bounds;
+      load_dataset excludes raw age from predictor features in this mode
     - encodes the label
     - creates an intersectional group and its integer ID
 
@@ -104,6 +110,21 @@ def preprocess_adult(df: pd.DataFrame, positive_label: str = "<=50K", binary_att
     df["native-country"] = df["native-country"].fillna("United-States")
     df["native-country"] = (df["native-country"] != "United-States").astype(int)
 
+    protected_cols = tuple(protected_cols)
+    allowed = {"gender", "race", "native-country", "age_binary"}
+    if not protected_cols or len(set(protected_cols)) != len(protected_cols) or not set(protected_cols) <= allowed:
+        raise ValueError("Select unique protected_cols from gender, race, native-country, age_binary.")
+    
+    if "age_binary" in protected_cols:
+        if not math.isfinite(age_lower) and math.isfinite(age_upper) and 0 <= age_lower < age_upper <= 120:
+            raise ValueError("age_lower and age_upper must be finite and satisfy 0 <= age_lower < age_upper <= 120.")
+        _validate_columns_exist(df, ["age"])
+        age = pd.to_numeric(df["age"], errors="raise")
+        if age.isna().any() or not age.between(0, 120).all():
+            raise ValueError("Age must contain valid, nonmissing ages.")
+        # Explicit boundary: 0 means age < low or age > upper; 1 means low < age < upper
+        df["age_binary"] = (~age.between(age_lower, age_upper, inclusive="both")).astype(int)
+
     # Label
     labels = df["income"].astype('string').str.rstrip('.')
     if not labels.isin(['<=50K','>50K']).all():
@@ -111,13 +132,7 @@ def preprocess_adult(df: pd.DataFrame, positive_label: str = "<=50K", binary_att
     df['income'] = (labels == positive_label).astype(int)
 
     # Intersectional group
-    df["group"] = (
-        df["gender"].astype(str)
-        + "_"
-        + df["race"].astype(str)
-        + "_"
-        + df["native-country"].astype(str)
-    ).astype("category")
+    df["group"] = df[list(protected_cols)].astype(str).agg("_".join, axis=1).astype("category")
 
     group_id = {name: idx for idx, name in enumerate(df["group"].cat.categories)}
     df["group_id"] = df["group"].cat.codes.astype(int)
@@ -130,19 +145,25 @@ def load_dataset(
         drop_na: bool = True,
         csv_path=None,
         positive_label: str = "<=50K",
+        protected_cols: Sequence[str] = ("gender", "race", "native-country"),
         compute_pg: bool = True,
         pg_alpha: float = 1.0,
         pg_num_draws: int = 20000,
         pg_ci: float = 0.95,
         seed: int = 42,
-        binary_attrs: bool = True
+        binary_attrs: bool = True,
+        age_lower: float = 25,
+        age_upper: float = 60,
     ) -> LoadedDataset:
     """
     Standard Adult loader used by `load_dataset_by_name("adult")`.
     """
     df, original_columns = load_raw_adult(drop_na=drop_na, csv_path=csv_path)
-    df, group_id = preprocess_adult(df, positive_label=positive_label, binary_attrs=binary_attrs)
-
+    protected_cols = tuple(protected_cols)
+    df, group_id = preprocess_adult(df, positive_label=positive_label, binary_attrs=binary_attrs, protected_cols=protected_cols,
+                                    age_lower=age_lower, age_upper=age_upper)
+    spec = replace(ADULT_SPEC, protected_cols=protected_cols, drop_feature_cols=(("age",) if "age_binary" in protected_cols else ()))
+    
     pg_table = None
     pg = None
     if compute_pg:
@@ -162,9 +183,8 @@ def load_dataset(
         group_id=group_id,
         pg_table=pg_table,
         pg=pg,
-        metadata={"spec": ADULT_SPEC},
+        metadata={"spec": spec, "age_binning": {"lower": age_lower, "upper": age_upper, "inside_inclusive": 0, "outside": 1} if "age_binary" in protected_cols else None,}
     )
-
 
 # # -------------------------------------------------------------
 # # DATA EXTRACTION
