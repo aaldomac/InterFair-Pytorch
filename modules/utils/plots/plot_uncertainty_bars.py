@@ -43,7 +43,7 @@ PAPER_STYLE = {
     "figure.dpi": 150, "savefig.dpi": 300,
     "font.family": "serif", "font.serif": ["DejaVu Serif"],
     "font.size": 8, "axes.labelsize": 8, "axes.titlesize": 8,
-    "legend.fontsize": 7, "xtick.labelsize": 7, "ytick.labelsize": 7,
+    "legend.fontsize": 10, "xtick.labelsize": 7, "ytick.labelsize": 7,
     "figure.titlesize": 9, "text.usetex": False,
     "lines.linewidth": 1.8, "lines.markersize": 3.5,
     "axes.spines.top": False, "axes.spines.right": False,
@@ -199,8 +199,9 @@ def plot_grouped_bars(summary, *, scale='none', errorbars='sd', title=None,
     from matplotlib.ticker import MaxNLocator
     if errorbars not in ('sd','ci95','none'):
         raise ValueError('errorbars must be sd, ci95, or none.')
-    # conditions=list(dict.fromkeys(summary.condition))
-    conditions = ['loan_compounded', 'loan_intersectional', 'loan_additive', 'loan_single', 'loan_no_bias']
+    conditions=list(dict.fromkeys(summary.condition))
+    if "loan_compounded" in conditions:
+        conditions = ['loan_compounded', 'loan_intersectional', 'loan_additive', 'loan_single', 'loan_no_bias']
     metrics=list(dict.fromkeys(summary.metric))
     if summary.duplicated(['condition','metric']).any() or len(summary)!=len(conditions)*len(metrics):
         raise ValueError('Summary must have one row per condition/metric pair.')
@@ -259,7 +260,7 @@ def plot_grouped_bars(summary, *, scale='none', errorbars='sd', title=None,
         # ax.legend(loc='upper left',bbox_to_anchor=(1.01,1),frameon=False,
         #           fontsize=7,title='Metric',title_fontsize=8)
         # Place the legend inside the figure where it does not overlap the bars, and avoid a title that is redundant with the axis label.
-        ax.legend(loc='lower right',frameon=False,fontsize=7)
+        ax.legend(loc='lower right',frameon=False,fontsize=10)
         notes='Mean across runs' + ('; error bars: ±1 sample SD' if errorbars=='sd' else '; error bars: pointwise 95% CI' if errorbars=='ci95' else '')
         if (summary.n==1).any():
             notes+='; SD/CI unavailable for single runs'
@@ -270,7 +271,7 @@ def plot_grouped_bars(summary, *, scale='none', errorbars='sd', title=None,
         if show_notes:
             heading.append(textwrap.fill(notes, width=max(30, int(fig.get_figwidth()*14))))
         if heading:
-            ax.set_title('\n'.join(heading),loc='left',fontsize=9,pad=10)
+            ax.set_title('\n'.join(heading),loc='left',fontsize=10,pad=10)
     return fig,ax,plotted,parameters
 
 
