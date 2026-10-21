@@ -35,6 +35,8 @@ logs/
 outputs/
 runs/
 results/
+figures/
+audits/
 
 # Models/checkpoints
 saved_models/
