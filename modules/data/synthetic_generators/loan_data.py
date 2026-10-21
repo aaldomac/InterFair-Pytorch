@@ -70,14 +70,18 @@ def generate_loan_dataset(scenario='no_bias', *, seed=42, sample_size=10000, ove
     import pandas as pd
     c = scenario_config(scenario, seed=seed, sample_size=sample_size, overrides=overrides)
     rng = np.random.RandomState(seed)
+    # Generate sensitive attributes
     G = rng.binomial(1, c['prob_gender'], sample_size)
     R = rng.binomial(1, c['prob_race'], sample_size)
+    # Generate noises
     UE = rng.normal(0, .25, sample_size)
     UI = rng.normal(0, 4, sample_size)
     US = rng.normal(0, 5, sample_size)
     UL = rng.normal(0, 10, sample_size)
     UD = rng.normal(0, 9, sample_size)
     rng.normal(0, c['eta'], sample_size)  # First unused upstream outcome-noise draw.
+
+    # Covariates
     def effect(key):
         d = c[key]
         return d['G']*G + d['R']*R + d['GR']*(G*R)
@@ -86,8 +90,11 @@ def generate_loan_dataset(scenario='no_bias', *, seed=42, sample_size=10000, ove
     S = -4 + 1.5*np.where(I > 0, I, 0) + US
     L = 1 - c['beta_I']*I - c['beta_S']*S + c['lambdas']['L']*effect('rhos') + UL
     D = -1 - c['beta_I']*I + L + c['lambdas']['D']*effect('kappas') + UD
+
+    # Outcome
     alpha = np.where((I > 0) & (S > 0), 1, -1)
     UY = rng.normal(0, c['eta'], sample_size)  # Second unused draw is returned upstream.
+
     bias = c['lambdas']['Y']*effect('nus')
     odds = 15.0 + c['delta']*(-L-D) + .3*(I+S+alpha*I*S)
     with np.errstate(over='ignore'):
@@ -159,7 +166,7 @@ def generate_loan_splits(*, seed=42, scenario='loan_no_bias', train=6000,
                 retention=[1.]*4, counts=counts, entropy_units='nats',
                 population_pg=dict(zip(GROUPS,[(1-pg)*(1-pr),(1-pg)*pr,pg*(1-pr),pg*pr])),
                 split_protocol='unstratified held-out audit; extra validation within development pool',
-                label_semantics='Y copied unchanged from repository; no approve/deny relabeling',
+                label_semantics='1 = loan denial (score <= threshold); 0 = loan approval (score > threshold). Outcome names are our interpretation of the unchanged upstream rule.',
                 numpy_version=np.__version__)
     return splits, meta
 
