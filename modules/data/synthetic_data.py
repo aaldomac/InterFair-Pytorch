@@ -44,15 +44,23 @@ def generate(seed=0, scenario='loan_no_bias', train=6000, validation=1500,
     return apply_uncertainty(splits,meta,uncertainty,seed=seed)
 
 
+# def get_spec():
+#     """Constructs our 'DatasetSpec', identifying protected columns, label and columns excluded from predictors.
+#     Exclude all identifiers, split labels and oracle fields from predictors."""
+#     from modules.utils.dataset_utils import DatasetSpec
+#     return DatasetSpec(
+#         name='synthetic_data', protected_cols=('S1', 'S2'), label_col='y',
+#         drop_feature_cols=('split', 'row_id', 'y_clean', 'p_true', 'U_true'),
+#     )
 def get_spec():
-    """Constructs our 'DatasetSpec', identifying protected columns, label and columns excluded from predictors.
-    Exclude all identifiers, split labels and oracle fields from predictors."""
+    """Keep protected attributes for grouping; exclude duplicates from X."""
     from modules.utils.dataset_utils import DatasetSpec
-    return DatasetSpec(
-        name='synthetic_data', protected_cols=('S1', 'S2'), label_col='y',
-        drop_feature_cols=('split', 'row_id', 'y_clean', 'p_true', 'U_true'),
-    )
 
+    return DatasetSpec(
+        name="synthetic_data", protected_cols=("S1", "S2"), label_col="y",
+        drop_feature_cols=("Gender", "Race",  # Duplicate copies of S1 and S2
+            "split", "row_id", "y_clean", "p_true", "U_true",),
+            )
 
 def load_dataset(*, folder=None, **generation_kwargs):
     """Return your LoadedDataset with fixed splits in metadata['split_indices'].

@@ -225,6 +225,11 @@ def prepare_data(config: PipelineConfig) -> PreparedData:
         spec,
         append_protected=config.append_protected_to_predictor,
     )
+    if config.dataset_name == "synthetic_data" and not config.append_protected_to_predictor:
+        forbidden = {"Gender", "Race", "S1", "S2"}
+        exposed = forbidden.intersection(predictor_schema["feature_cols"])
+        if exposed or predictor_schema["append_protected"]:
+            raise RuntimeError(f"Protected attributes exposed to synthetic preditor: {exposed}.")
 
     X_train, y_train, g_train = transform_predictor_schema(train_df, predictor_schema)
     X_val, y_val, g_val = transform_predictor_schema(val_df, predictor_schema)
