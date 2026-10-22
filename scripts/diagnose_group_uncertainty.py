@@ -105,13 +105,13 @@ def main():
                 ('error_detection', ['error_auroc_U_alea','error_auroc_U_epis','error_auroc_U_tot','error_auroc_low_confidence','ece'], ['overall']),
                 # Does uncertainty increase with mistakes? (paired within-run differences)
                 # ('correctness', ['U_alea','U_epis','U_tot','mean_confidence'], ['correct','incorrect']),
-                ('correctness', ['U_alea','U_epis','U_het','U_mix'], ['correct','incorrect']),
+                ('correctness', ['U_alea','U_epis','U_tot','U_het'], ['correct','incorrect']),
                 # How are actual members of each outcome class handled?
                 # ('true_class', ['U_alea','U_epis','U_tot','accuracy'], [f'true_class={k}' for k in range(c)]),
-                ('true_class', ['U_alea','U_epis','U_het','U_mix'], [f'true_class={k}' for k in range(c)]),
+                ('true_class', ['U_alea','U_epis','U_tot','U_het'], [f'true_class={k}' for k in range(c)]),
                 # What are the predictions like among recipients of each decision?
                 # ('predicted_class', ['U_alea','U_epis','U_tot','accuracy'], [f'predicted_class={k}' for k in range(c)]),
-                ('predicted_class', ['U_alea','U_epis','U_het','U_mix'], [f'predicted_class={k}' for k in range(c)]),
+                ('predicted_class', ['U_alea','U_epis','U_tot','U_het'], [f'predicted_class={k}' for k in range(c)]),
                 # prevalence_class_k is the percentage of samples in true class k; mean_prob_class_k is the average predicted probability for true class k.
                 ('composition', [f'prevalence_class_{k}' for k in range(c)]+[f'mean_prob_class_{k}' for k in range(c)], ['overall']),
                 # How much does class composition affect the group comparison?
