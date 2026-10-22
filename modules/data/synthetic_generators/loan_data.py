@@ -100,7 +100,8 @@ def generate_loan_dataset(scenario='no_bias', *, seed=42, sample_size=10000, ove
     with np.errstate(over='ignore'):
         score = 1/(1+np.exp(-odds))
     threshold = .5+c['gamma']*bias
-    Y = (score <= threshold).astype(int)
+    # Y = (score <= threshold).astype(int)
+    Y = (score > threshold).astype(int)
     frame = pd.DataFrame(dict(Gender=G, Race=R, Education=E, Income=I,
                               Savings=S, LoanAmount=L, Duration=D, Y=Y))
     return dict(df_array=np.vstack([G,R,E,I,S,L,D,Y]).T,
