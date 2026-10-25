@@ -1,15 +1,29 @@
 output: experiments/kanubala
+# data_seeds:
+# - 42
+# - 100
+# - 11
+# - 123
+# - 789
+# - 999
+# - 1234
+# - 2024
+# - 3456
+# - 5678
 data_seeds:
-- 42
-- 100
+- 0
+- 3
+- 4
+- 5
+- 7
+- 8
 - 11
+- 100
 - 123
-- 789
 - 999
 - 1234
 - 2024
 - 3456
-- 5678
 model_seed_base: 1000
 conditions:
   loan_no_bias:

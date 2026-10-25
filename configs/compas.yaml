@@ -1,11 +1,25 @@
 output: experiments/compas
 model_seed_base: 1000
-data_seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+# data_seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+data_seeds:
+- 0
+- 3
+- 4
+- 5
+- 7
+- 8
+- 11
+- 100
+- 123
+- 999
+- 1234
+- 2024
+- 3456
 dataset:
   name: compas
   kwargs:
     csv_path: loaded_data/compas-scores-two-years.csv
-    race_mode: black_white
+    race_mode: afroamerican_caucasian
     apply_filters: true
     drop_na: true
     compute_pg: false

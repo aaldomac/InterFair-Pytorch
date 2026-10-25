@@ -1,0 +1,24 @@
+{
+  "Female-minus-Male_at_White": {
+    "0_0": -1,
+    "1_0": 1
+  },
+  "Female-minus-Male_at_Black": {
+    "0_1": -1,
+    "1_1": 1
+  },
+  "Black-minus-White_at_Male": {
+    "0_0": -1,
+    "0_1": 1
+  },
+  "Black-minus-White_at_Female": {
+    "1_0": -1,
+    "1_1": 1
+  },
+  "Gender-Race_interaction": {
+    "0_0": 1,
+    "1_0": -1,
+    "0_1": -1,
+    "1_1": 1
+  }
+}
