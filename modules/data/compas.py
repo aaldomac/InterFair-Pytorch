@@ -11,24 +11,24 @@ import pandas as pd
 FEATURES = ("age", "juv_fel_count", "juv_misd_count", "juv_other_count",
             "priors_count", "c_charge_degree")
 RACES = ("Caucasian", "African-American", "Hispanic", "Asian", "Native American", "Other")
-SEX_CODES = {"Male": 0, "Female": 1}
+SEX_CODES = {"Male": 1, "Female": 0}
 FILTER_COLUMNS = ("days_b_screening_arrest", "is_recid", "score_text")
 SOURCE_URL = "https://raw.githubusercontent.com/propublica/compas-analysis/master/compas-scores-two-years.csv"
 
 
 
-def preprocess_compas(df, *, race_mode="black-white", apply_filters=True, drop_na=True):
+def preprocess_compas(df, *, race_mode="afroamerican-caucasian", apply_filters=True, drop_na=True):
     """Return (frame, group-name-to-ID mapping, metadata).
 
     race_mode='all': preserve six source categories.
-    race_mode='black_white': restrict to Caucasian/African-American (codes 0/1).
-    Sex: Male=0, Female=1. Label 1 denotes recorded two-year recidivism.
+    race_mode='afroamerican_caucasian': restrict to Caucasian/African-American (codes 0/1).
+    Sex: Male=1, Female=0. Label 1 denotes recorded two-year recidivism.
     IDs use 2*race_code+sex_code, so absent groups do not renumber others.
     Missing required fields are dropped only when drop_na=True; malformed values
     and unexpected categories always raise. Missing unused columns are irrelevant.
     """
-    if race_mode not in ("all", "black_white"):
-        raise ValueError("race_mode must be 'all' or 'black_white'.")
+    if race_mode not in ("all", "afroamerican_caucasian"):
+        raise ValueError("race_mode must be 'all' or 'afroamerican_caucasian'.")
     df = df.copy()
     df.columns = df.columns.str.strip()
     if df.columns.duplicated().any():
@@ -77,7 +77,7 @@ def preprocess_compas(df, *, race_mode="black-white", apply_filters=True, drop_n
                 & df["score_text"].ne("N/A"))
         df = df.loc[keep].copy()
     counts["after_filters"] = len(df)
-    if race_mode == "black_white":
+    if race_mode == "afroamerican_caucasian":
         df = df.loc[df["race"].isin(RACES[:2])].copy()
     counts["after_race_selection"] = len(df)
     if df.empty:
@@ -104,7 +104,7 @@ def preprocess_compas(df, *, race_mode="black-white", apply_filters=True, drop_n
     return out, mapping, metadata
 
 
-def load_dataset(*, csv_path="data/compas-scores-two-years.csv", race_mode="black-white",
+def load_dataset(*, csv_path="data/compas-scores-two-years.csv", race_mode="afroamerican-caucasian",
                  apply_filters=True, drop_na=True, seed=42, compute_pg=False,
                  pg_alpha=1.0, pg_num_draws=20000, pg_ci=0.95):
     """Adult-compatible loader. CSV must be downloaded explicitly before running."""
