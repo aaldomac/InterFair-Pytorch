@@ -1071,7 +1071,7 @@ def performance_fairness(ensemble_outputs, labels, group_ids, *, binary=True,
         pairs.append(row)
     summary={}
     for key in metrics:
-        complete=len(ids)>=2 and all(r[key] is not None for r in rows)
+        complete=len(ids)>=2 and all(r[key] is not None for r in rows)  # This line requires every observed group to have support. In the overall summary, if any group lacks support for a metric, the aggregate will be None.
         for suffix in ('gap','epsilon','max_ratio'):
             name=key+'_'+suffix
             summary[name]=max(r[name] for r in pairs) if complete else None

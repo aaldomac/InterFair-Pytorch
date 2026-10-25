@@ -55,7 +55,10 @@ def diagnose_predictions(ensemble, labels, groups, *, group_names=None, threshol
     # Compute predictions, confidence, errors, high-confidence mask, and uncertainty components for all samples.
     pred = ((p[:, 1] >= threshold).astype(int) if c == 2 else p.argmax(1))
     selected_probabilities = p if soft else np.eye(c)[pred]
-    confidence = p[np.arange(len(p)), pred]
+    confidence = p[np.arange(len(p)), pred]  # What if we measured confidence as 1-Uncertainty_normalized?
+    print(f"Confidence as max predicted: {confidence[:5]} ...")
+    confidence = 1 - _entropy(selected_probabilities) / np.log(c)  # normalized entropy as confidence
+    print(f"Confidence as normalized entropy: {confidence[:5]} ...")
     error = pred != y
     high = confidence >= high_confidence
     u = {'U_tot': _entropy(p)}
@@ -185,7 +188,7 @@ def read_run_diagnostics(run, **kwargs):
 
 
 def summarize_runs(frame, keys, metrics, run_counts):
-    """Strict complete-run pointwise t intervals; never pool individual rows."""
+    """Average available finite run estimates; retain valid/total run counts."""
     from modules.utils.reporting_utils import mean_ci95
     out = []
     if frame.duplicated([*keys, 'run']).any():
@@ -198,12 +201,21 @@ def summarize_runs(frame, keys, metrics, run_counts):
         for metric in metrics:
             values = pd.to_numeric(part[metric], errors='raise').to_numpy(float)
             values = values[np.isfinite(values)]
+            # I COMMENT BELOW LINES BECAUSE THEY MAKING NAN VALUES IN SUMMARY ELIMINATE ANY CONTRIBUTION
             complete = len(values) == n
             stats = mean_ci95(values) if complete and n > 1 else {}
             out.append(dict(**record, metric=metric, n_runs=n, n_valid=len(values),
                 mean=float(values.mean()) if complete else np.nan, std=stats.get('sd', np.nan),
                 ci95=stats.get('ci_half_width', np.nan), ci_low=stats.get('ci_low', np.nan),
                 ci_high=stats.get('ci_high', np.nan)))
+            # n_valid = len(values)
+            # stats = mean_ci95(values) if n_valid > 1 else {}
+
+            # out.append(dict(**record, metric=metric, n_runs=n, n_valid=n_valid,
+            #     mean=float(values.mean()) if n_valid > 0 else np.nan,
+            #     std=stats.get('sd', np.nan), ci95=stats.get('ci_half_width', np.nan),
+            #     ci_low=stats.get('ci_low', np.nan), ci_high=stats.get('ci_high', np.nan),
+            # ))
     return pd.DataFrame(out)
 
 
