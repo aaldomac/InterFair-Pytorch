@@ -146,9 +146,9 @@ def plot_runs(runs, grid, args, destination):
         ax.legend(fontsize=6, loc="best")
     axes[0].set_ylabel("Mean within-run cumulative fraction")
     shade = {"sd": "±1 SD across runs", "ci95": "pointwise 95% t CI", "none": "no shading"}
-    fig.suptitle(f"{runs[0]['condition']} | {len(runs)} runs | {shade[args.shading]}\n"
-                 "Equal run weights; empty subsets omitted and coverage reported",
-                 fontsize=10)
+    # fig.suptitle(f"{runs[0]['condition']} | {len(runs)} runs | {shade[args.shading]}\n"
+    #              "Equal run weights; empty subsets omitted and coverage reported",
+    #              fontsize=10)
     fig.tight_layout()
     for fmt in args.formats:
         fig.savefig(str(destination) + "." + fmt, dpi=180)

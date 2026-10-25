@@ -4,12 +4,12 @@ import textwrap
 from functools import wraps
 from pathlib import Path
 import numpy as np
-
+from modules.utils.plots.group_labels import add_group_key
 
 # Palette from plotting_functions.py; no ICML/tueplots or seaborn dependency.
 COLORS = {
-    "blue": "#0072B2", "orange": "#E69F00", "green": "#009E73",
-    "red": "#D55E00", "purple": "#CC79A7", "gray": "#7F7F7F",
+    "green": "#009E73", "red": "#D55E00", "blue": "#0072B2", "orange": "#E69F00",
+    "purple": "#CC79A7", "gray": "#7F7F7F",
     "black": "#000000",
 }
 PALETTE = tuple(COLORS.values())
@@ -89,12 +89,11 @@ def save_figure(fig, path, *, dpi=300):
 
 @_paper_style
 def plot_panels(summary, metrics, *, scopes, scope_labels=None, errorbars='ci95', title='',
-                ncols=2, figsize=(7.0, 5.5), show_notes=True, metric_labels=None, hatches=True):
+                ncols=2, figsize=(7.0, 5.5), show_notes=False, metric_labels=None, hatches=True, group_labels=None, show_overall_mean=False,):
     """Grouped means; existing CI/SD half-widths are plotted unchanged."""
     metrics, scopes = list(metrics), list(scopes)
     if not scopes:
         raise ValueError('Supply at least one scope.')
-    import matplotlib.pyplot as plt
     groups = list(dict.fromkeys(summary.group))
     names = scope_labels or {}
     fig, axes = _layout(len(metrics), ncols, figsize, 2.7)
@@ -108,14 +107,24 @@ def plot_panels(summary, metrics, *, scopes, scope_labels=None, errorbars='ci95'
             finite = np.isfinite(values)
             ax.bar(positions[finite], values[finite], width*.92, color=PALETTE[j % len(PALETTE)], alpha=.85,
                    edgecolor=COLORS['black'], linewidth=.35,
-                   hatch=HATCHES[j % len(HATCHES)] if hatches else None,
+                #    hatch=HATCHES[j % len(HATCHES)] if hatches else None,
+                    hatch=HATCHES[0] if hatches else None,
                    label=names.get(scope, scope))
             good = finite & np.isfinite(errors)
             if errorbars != 'none' and good.any():
                 ax.errorbar(positions[good], values[good], yerr=errors[good], fmt='none', color='#333', capsize=2)
             for x in positions[~finite]:
                 ax.text(x, .025, 'NA', transform=ax.get_xaxis_transform(), ha='center', fontsize=7)
-        ax.set_xticks(np.arange(len(groups)), groups, rotation=40, ha='right')
+        if show_overall_mean:
+            overall = summary[(summary.metric == metric) & (summary.scope == 'overall')].set_index('group').reindex(groups)
+
+            means = overall['mean'].to_numpy(float)
+            centers = np.arange(len(groups))
+            valid = np.isfinite(means)
+
+            ax.hlines(y=means[valid], xmin=centers[valid] - 0.40, xmax=centers[valid] + 0.40,
+                colors='black', linestyles='--', linewidth=1, zorder=5, label='Group mean (all individuals)',)
+        ax.set_xticks(np.arange(len(groups)), groups, rotation=0, ha='center')
         ax.set_xlim(-.6, len(groups)-.4)
         ax.set_title(textwrap.fill(str((metric_labels or {}).get(metric, metric)), 32))
         ax.axhline(0, color='#555', linewidth=.6)
@@ -126,15 +135,16 @@ def plot_panels(summary, metrics, *, scopes, scope_labels=None, errorbars='ci95'
         ax.spines[['top','right']].set_visible(False)
     for ax in list(axes.flat)[len(metrics):]:
         ax.set_visible(False)
-    axes.flat[0].legend(fontsize=7, frameon=False)
+    axes.flat[1].legend(fontsize=7, frameon=False)
     label = {'ci95':'pointwise 95% t CI across runs', 'sd':'sample SD across runs', 'none':'no error bars'}[errorbars]
     _heading(fig, title, label+'; NA = incomplete/undefined; each panel has its own scale', show_notes)
+    add_group_key(fig, group_labels)
     return fig
 
 
 @_paper_style
 def plot_contrasts(summary, metrics, *, scope='overall', errorbars='ci95', title='',
-                   ncols=2, figsize=(7.0, 5.5), show_notes=True, metric_labels=None):
+                   ncols=2, figsize=(7.0, 5.5), show_notes=False, metric_labels=None, group_labels=None):
     """Signed within-run contrasts; no multiplicity adjustment is introduced."""
     metrics = list(metrics)
     import matplotlib.pyplot as plt
@@ -163,11 +173,12 @@ def plot_contrasts(summary, metrics, *, scope='overall', errorbars='ci95', title
         ax.set_visible(False)
     _heading(fig, f'{title}: {scope}' if title else str(scope),
              f'Signed within-run contrasts; error bars={errorbars}; no multiplicity adjustment', show_notes)
+    add_group_key(fig, group_labels)
     return fig
 
 
 @_paper_style
-def plot_reliability(frame, title='', *, ncols=2, figsize=(7.0, 5.5), show_notes=True):
+def plot_reliability(frame, title='', *, ncols=2, figsize=(7.0, 5.5), show_notes=False, group_labels=None):
     """Equal-run bin averages over occupied bins; descriptive, no pooled-person CI."""
     import matplotlib.pyplot as plt
     groups = list(dict.fromkeys(frame.group))
@@ -183,4 +194,5 @@ def plot_reliability(frame, title='', *, ncols=2, figsize=(7.0, 5.5), show_notes
     for ax in list(axes.flat)[len(groups):]:
         ax.set_visible(False)
     _heading(fig, title, 'Equal-run means over occupied confidence bins; below diagonal = overconfidence', show_notes)
+    add_group_key(fig, group_labels)
     return fig

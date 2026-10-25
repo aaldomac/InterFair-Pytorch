@@ -6,6 +6,8 @@ import math
 import numpy as np
 import pandas as pd
 
+from modules.utils.plots.group_labels import add_group_key
+
 ALIASES = {
     'U_alea': 'alea', 'U_epis': 'epis', 'U_tot': 'tot',
     'U_mix': 'group_mix_entropy', 'U_het': 'group_het_entropy',
@@ -211,7 +213,7 @@ def _error_note(errorbars):
     return f'\nError bars: {label} (unavailable for one run)'
 
 
-def plot_group_metrics(summary, *, ncols=3, errorbars='sd', annotate=False, title=None):
+def plot_group_metrics(summary, *, ncols=3, errorbars='sd', annotate=False, title=None, group_labels=None):
     """Plot one condition as N independently scaled metric panels; return fig, axes."""
     import matplotlib.pyplot as plt
     if summary.empty or summary.condition.nunique() != 1:
@@ -257,14 +259,15 @@ def plot_group_metrics(summary, *, ncols=3, errorbars='sd', annotate=False, titl
         ax.spines[['top', 'right']].set_visible(False)
     for ax in list(axes.flat)[len(metrics):]:
         ax.set_visible(False)
-    note = 'Each panel has its own scale; NA = missing/undefined in at least one run'
-    note += _error_note(errorbars)
-    fig.suptitle((title or str(summary.condition.iloc[0])) + '\n' + note, fontsize=11)
+    # note = 'Each panel has its own scale; NA = missing/undefined in at least one run'
+    # note += _error_note(errorbars)
+    # fig.suptitle((title or str(summary.condition.iloc[0])) + '\n' + note, fontsize=11)
+    # add_group_key(fig, group_labels, summary.group)
     return fig, axes
 
 
 def plot_group_metrics_combined(summary, *, ncols=1, errorbars='sd',
-                                annotate=False, title=None):
+                                annotate=False, title=None, group_labels=None):
     """One metric per panel; condition blocks contain consistently ordered groups.
 
     All conditions share a y scale within a metric. Different metrics have their
@@ -339,9 +342,10 @@ def plot_group_metrics_combined(summary, *, ncols=1, errorbars='sd',
                                 for j, gid in enumerate(groups)],
                         title='Intersectional group', loc='lower left',
                         bbox_to_anchor=(0, 1.12), ncol=min(8, len(groups)), frameon=False)
-    note = 'Shared scale across conditions within each metric; NA = missing/undefined'
-    note += _error_note(errorbars)
-    fig.suptitle((title+'\n' if title else '') + note, fontsize=11)
+    # note = 'Shared scale across conditions within each metric; NA = missing/undefined'
+    # note += _error_note(errorbars)
+    # fig.suptitle((title+'\n' if title else '') + note, fontsize=11)
+    # add_group_key(fig, group_labels, summary.group)
     return fig, axes
 
 

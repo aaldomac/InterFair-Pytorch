@@ -30,8 +30,8 @@ import numpy as np
 import pandas as pd
 
 COLORS = {
-    "blue": "#0072B2", "orange": "#E69F00", "green": "#009E73",
-    "red": "#D55E00", "purple": "#CC79A7", "gray": "#7F7F7F",
+    "green": "#009E73", "red": "#D55E00", "blue": "#0072B2", "orange": "#E69F00",
+    "purple": "#CC79A7", "gray": "#7F7F7F",
     "black": "#000000",
 }
 
@@ -230,7 +230,8 @@ def plot_grouped_bars(summary, *, scale='none', errorbars='sd', title=None,
                 label+= ' [nats]' if metric in NATS else (' [unitless]' if metric in DIMENSIONLESS else '')
             ax.barh(pos,values,height=h*.9,color=colors[j],label=label,zorder=3,
                     alpha=.85, edgecolor=COLORS['black'], linewidth=.35,
-                    hatch=HATCHES[j % len(HATCHES)] if hatches else None)
+                    # hatch=HATCHES[j % len(HATCHES)] if hatches else None
+                    hatch=HATCHES[0] if hatches else None)
             valid_std=np.isfinite(std)
             valid_ci95=np.isfinite(ci95)
             if errorbars=='sd' and valid_std.any():
