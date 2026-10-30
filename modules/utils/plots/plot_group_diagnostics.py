@@ -17,9 +17,9 @@ HATCHES = ("", "//", "\\\\", "xx", "..", "++", "oo")
 PAPER_STYLE = {
     "figure.dpi": 150, "savefig.dpi": 300,
     "font.family": "serif", "font.serif": ["DejaVu Serif"],
-    "font.size": 8, "axes.labelsize": 8, "axes.titlesize": 8,
-    "legend.fontsize": 7, "xtick.labelsize": 7, "ytick.labelsize": 7,
-    "figure.titlesize": 9, "text.usetex": False,
+    "font.size": 11, "axes.labelsize": 11, "axes.titlesize": 11,
+    "legend.fontsize": 11, "xtick.labelsize": 11, "ytick.labelsize": 9,
+    "figure.titlesize": 11, "text.usetex": False,
     "lines.linewidth": 1.8, "lines.markersize": 3.5,
     "axes.spines.top": False, "axes.spines.right": False,
     "axes.linewidth": .6, "axes.grid": False,
@@ -61,7 +61,7 @@ def _heading(fig, title, note, show_notes):
     if show_notes:
         parts.append(textwrap.fill(note, width=max(30, int(fig.get_figwidth() * 16))))
     if parts:
-        fig.suptitle("\n".join(parts), fontsize=9)
+        fig.suptitle("\n".join(parts), fontsize=PAPER_STYLE["figure.titlesize"], y=1.0, x=.5, ha='center', va='top')
 
 
 def _errors(data, errorbars):
@@ -101,20 +101,27 @@ def plot_panels(summary, metrics, *, scopes, scope_labels=None, errorbars='ci95'
     for ax, metric in zip(axes.flat, metrics):
         for j, scope in enumerate(scopes):
             part = summary[(summary.metric == metric) & (summary.scope == scope)].set_index('group').reindex(groups)
+            # print(f"Metric: {metric}, Scope: {scope}, Groups: {groups}, Part:\n{part}")
             values = part['mean'].to_numpy(float)
             errors = _errors(part, errorbars)
             positions = np.arange(len(groups)) + (j-(len(scopes)-1)/2)*width
             finite = np.isfinite(values)
             ax.bar(positions[finite], values[finite], width*.92, color=PALETTE[j % len(PALETTE)], alpha=.85,
-                   edgecolor=COLORS['black'], linewidth=.35,
+                   edgecolor=COLORS['black'], linewidth=.35, 
                 #    hatch=HATCHES[j % len(HATCHES)] if hatches else None,
                     hatch=HATCHES[0] if hatches else None,
                    label=names.get(scope, scope))
+            # # Set fixed y limits depending on the metric type
+            # if metric == "U_alea":
+            #     ax.set_ylim(0, 0.08)
+            # elif metric == "U_epis":
+            #     ax.set_ylim(0, 0.012)
+            
             good = finite & np.isfinite(errors)
             if errorbars != 'none' and good.any():
                 ax.errorbar(positions[good], values[good], yerr=errors[good], fmt='none', color='#333', capsize=2)
             for x in positions[~finite]:
-                ax.text(x, .025, 'NA', transform=ax.get_xaxis_transform(), ha='center', fontsize=7)
+                ax.text(x, .025, 'NA', transform=ax.get_xaxis_transform(), ha='center', fontsize=PAPER_STYLE["xtick.labelsize"])
         if show_overall_mean:
             overall = summary[(summary.metric == metric) & (summary.scope == 'overall')].set_index('group').reindex(groups)
 
@@ -123,10 +130,11 @@ def plot_panels(summary, metrics, *, scopes, scope_labels=None, errorbars='ci95'
             valid = np.isfinite(means)
 
             ax.hlines(y=means[valid], xmin=centers[valid] - 0.40, xmax=centers[valid] + 0.40,
-                colors='black', linestyles='--', linewidth=1, zorder=5, label='Group mean (all individuals)',)
-        ax.set_xticks(np.arange(len(groups)), groups, rotation=0, ha='center')
+                colors='black', linestyles='--', linewidth=1, zorder=5, label='Group mean',)
+        ax.set_xticks(np.arange(len(groups)), groups, rotation=20, ha='center', fontsize=PAPER_STYLE["xtick.labelsize"]-2)
+        ax.set_ylabel('Mean (nats)', fontsize=PAPER_STYLE["axes.labelsize"]-4)
         ax.set_xlim(-.6, len(groups)-.4)
-        ax.set_title(textwrap.fill(str((metric_labels or {}).get(metric, metric)), 32))
+        ax.set_title(textwrap.fill(str((metric_labels or {}).get(metric, metric)), 32), fontsize=PAPER_STYLE["axes.titlesize"])
         ax.axhline(0, color='#555', linewidth=.6)
         if metric.startswith('error_auroc'):
             ax.axhline(.5, color='#777', linestyle='--', linewidth=.8)
@@ -135,10 +143,11 @@ def plot_panels(summary, metrics, *, scopes, scope_labels=None, errorbars='ci95'
         ax.spines[['top','right']].set_visible(False)
     for ax in list(axes.flat)[len(metrics):]:
         ax.set_visible(False)
-    axes.flat[1].legend(fontsize=7, frameon=False)
-    label = {'ci95':'pointwise 95% t CI across runs', 'sd':'sample SD across runs', 'none':'no error bars'}[errorbars]
-    _heading(fig, title, label+'; NA = incomplete/undefined; each panel has its own scale', show_notes)
-    add_group_key(fig, group_labels)
+    # Include the legend only in the second panel of condition 01: single axis 
+    axes.flat[1].legend(fontsize=PAPER_STYLE["legend.fontsize"]-3, frameon=False, loc='outside right upper')
+    # label = {'ci95':'pointwise 95% t CI across runs', 'sd':'sample SD across runs', 'none':'no error bars'}[errorbars]
+    # _heading(fig, title, label+'; NA = incomplete/undefined; each panel has its own scale', show_notes)
+    # add_group_key(fig, group_labels)
     return fig
 
 
@@ -171,28 +180,83 @@ def plot_contrasts(summary, metrics, *, scope='overall', errorbars='ci95', title
         ax.grid(axis='x')
     for ax in list(axes.flat)[len(metrics):]:
         ax.set_visible(False)
-    _heading(fig, f'{title}: {scope}' if title else str(scope),
-             f'Signed within-run contrasts; error bars={errorbars}; no multiplicity adjustment', show_notes)
-    add_group_key(fig, group_labels)
+    # _heading(fig, f'{title}: {scope}' if title else str(scope),
+    #          f'Signed within-run contrasts; error bars={errorbars}; no multiplicity adjustment', show_notes)
+    # add_group_key(fig, group_labels)
     return fig
 
 
 @_paper_style
-def plot_reliability(frame, title='', *, ncols=2, figsize=(7.0, 5.5), show_notes=False, group_labels=None):
-    """Equal-run bin averages over occupied bins; descriptive, no pooled-person CI."""
+def plot_reliability(frame, title='', *, ncols=2, figsize=(7.0, 5.5), show_notes=False, group_labels=None,):
+    """Equal-run bin averages over occupied bins; descriptive, no pooled-person CI.
+
+    group_labels: optional mapping from group identifiers to legend labels.
+    ncols: retained for backward compatibility; unused.
+    """
     import matplotlib.pyplot as plt
+
     groups = list(dict.fromkeys(frame.group))
-    fig, axes = _layout(len(groups), ncols, figsize, 2.5)
-    for ax, group in zip(axes.flat, groups):
-        part = frame[frame.group == group].groupby('bin',sort=True)[['confidence','accuracy']].mean()
-        ax.plot([0,1],[0,1], '--', color='#777', linewidth=1)
-        ax.plot(part.confidence, part.accuracy, 'o-',color=COLORS['blue'],markersize=4)
-        ax.set(xlim=(0,1), ylim=(0,1), xlabel='Mean assigned confidence', ylabel='Decision accuracy', title=group)
-        ax.set_aspect('equal', adjustable='box')
-        ax.set_axisbelow(True)
-        ax.grid()
-    for ax in list(axes.flat)[len(groups):]:
-        ax.set_visible(False)
-    _heading(fig, title, 'Equal-run means over occupied confidence bins; below diagonal = overconfidence', show_notes)
-    add_group_key(fig, group_labels)
+    fig, ax = plt.subplots(figsize=figsize)
+
+    # Reference line for perfect calibration.
+    ax.plot([0, 1], [0, 1], '--', color=COLORS['gray'], linewidth=1, label='Perfect calibration', zorder=1,)
+
+    linestyles = ('-', '--', '-.', ':')
+
+    for i, group in enumerate(groups):
+        part = (frame.loc[frame.group == group].groupby('bin', sort=True)[['confidence', 'accuracy']].mean())
+
+        label = group_labels.get(group, str(group)) if group_labels is not None else str(group)
+
+        ax.plot(part['confidence'], part['accuracy'], color=PALETTE[i % len(PALETTE)],
+            linestyle=linestyles[(i // len(PALETTE)) % len(linestyles)], marker='o',
+            markersize=4, label=label, zorder=2,
+        )
+
+    ax.set(xlim=(0, 1), ylim=(0, 1), xlabel='Mean assigned confidence', ylabel='Decision accuracy',)
+    ax.set_aspect('equal', adjustable='box')
+    ax.set_axisbelow(True)
+    ax.grid(True)
+    ax.legend(loc='best')
+
+    # _heading(fig, title, 'Equal-run means over occupied confidence bins; below diagonal = overconfidence', show_notes,)
+
+    return fig
+
+
+@_paper_style
+def plot_accuracy_coverage(summary, title='', *, errorbars='ci95', figsize=(7.0, 4.5), show_notes=False, group_labels=None):
+    """Overlay subgroup curves; full coverage left, declining coverage right."""
+    import matplotlib.pyplot as plt
+    if summary.empty:
+        raise ValueError("Empty summary frame: no accuracy-coverage data.")
+    if summary.condition.nunique() != 1:
+        raise ValueError('Plot one condition at a time.')
+    fig, ax = plt.subplots(figsize=figsize, constrained_layout=True)
+    styles = ('-', '--', '-.', ':')
+    y_min = 1
+    for i, ((gid, group), part) in enumerate(summary.groupby(['group_id', 'group'], sort=False)):
+        part = part.sort_values('coverage')
+        x, y = part.coverage.to_numpy(float), part['mean'].to_numpy(float)
+        if np.any(y < y_min):
+            y_min = np.min(y[np.isfinite(y)])
+        err = _errors(part, errorbars)
+        color = PALETTE[i % len(PALETTE)]
+        label = (group_labels or {}).get(group, str(group))
+        ax.step(x, y, where='post', color=color, label=label,
+                linestyle=styles[(i // len(PALETTE)) % len(styles)])
+        if errorbars != 'none':
+            ax.fill_between(x, y-err, y+err, step='post',
+                where=np.isfinite(y) & np.isfinite(err), color=color,
+                alpha=.18, linewidth=0)
+    ax.set(xlim=(1, 0), ylim=(y_min, 1),
+           xlabel='Coverage (fraction retained; most uncertain removed first)',
+           ylabel='Accuracy of retained predictions')
+    ax.set_axisbelow(True)
+    ax.grid(True)
+    ax.legend(loc='best')
+    band = {'ci95': 'pointwise 95% t CI across runs',
+            'sd': 'sample SD across runs', 'none': 'no uncertainty band'}[errorbars]
+    # _heading(fig, title, 'Total predictive entropy ranking; equal-run means; '
+    #          + band + '; zero-coverage accuracy undefined', show_notes)
     return fig

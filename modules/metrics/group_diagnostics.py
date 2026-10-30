@@ -27,7 +27,7 @@ def error_auroc(errors, scores):
 
 
 def diagnose_predictions(ensemble, labels, groups, *, group_names=None, threshold=.5,
-                         positive_class=1, high_confidence=.9, bins=10, soft=False):
+                         positive_class=1, high_confidence=.9, bins=10, soft=False, include_coverage=False, coverage_tie_seed=0):
     """Return wide subgroup/stratum metrics and per-group reliability bins.
 
     Binary decisions follow threshold on column 1, matching ensemble_quality;
@@ -56,9 +56,8 @@ def diagnose_predictions(ensemble, labels, groups, *, group_names=None, threshol
     pred = ((p[:, 1] >= threshold).astype(int) if c == 2 else p.argmax(1))
     selected_probabilities = p if soft else np.eye(c)[pred]
     confidence = p[np.arange(len(p)), pred]  # What if we measured confidence as 1-Uncertainty_normalized?
-    print(f"Confidence as max predicted: {confidence[:5]} ...")
-    confidence = 1 - _entropy(selected_probabilities) / np.log(c)  # normalized entropy as confidence
-    print(f"Confidence as normalized entropy: {confidence[:5]} ...")
+    # confidence = 1 - _entropy(selected_probabilities) / np.log(c)  # normalized entropy as confidence
+    # print(f"Confidence as normalized entropy: {confidence[:5]} ...")
     error = pred != y
     high = confidence >= high_confidence
     u = {'U_tot': _entropy(p)}
@@ -143,10 +142,14 @@ def diagnose_predictions(ensemble, labels, groups, *, group_names=None, threshol
             reliability.append(dict(**identity, bin=b, lower=b/bins, upper=(b+1)/bins,
                 support=n, confidence=float(confidence[selected].mean()) if n else np.nan,
                 accuracy=float((~error[selected]).mean()) if n else np.nan))
-    return pd.DataFrame(rows), pd.DataFrame(reliability)
+    result = (pd.DataFrame(rows), pd.DataFrame(reliability))
+    if include_coverage:
+        coverage = accuracy_coverage_curves(u['U_tot'], ~error, g, group_names=group_names, tie_seed=coverage_tie_seed)
+        return (*result, coverage)
+    return result
 
 
-def read_run_diagnostics(run, **kwargs):
+def read_run_diagnostics(run, *, include_coverage=False, **kwargs):
     """Reuse source-run routing for re-audits; honor the selected audit threshold."""
     from modules.utils.loading_utils import load_saved_outputs, load_audit_config
     run = Path(run)
@@ -166,8 +169,9 @@ def read_run_diagnostics(run, **kwargs):
         names = {str(r.group_id): str(r.group) for r in frame.itertuples()}
     threshold = context.get('threshold', config.get('train', {}).get('threshold', .5))
     positive = options.get('positive_class', 1)
-    diagnostics, reliability = diagnose_predictions(ensemble, y, g, group_names=names,
-        threshold=threshold, positive_class=positive, soft=options.get('df_soft', options.get('soft', False)), **kwargs)
+    results = diagnose_predictions(ensemble, y, g, group_names=names,
+        threshold=threshold, positive_class=positive, soft=options.get('df_soft', options.get('soft', False)), include_coverage=include_coverage, **kwargs)
+    diagnostics, reliability = results[:2]
     identity = dict(condition=run.parent.name, seed=run.name, run=str(run.resolve()))
     if (run/'summary.csv').exists():
         summary = pd.read_csv(run/'summary.csv', dtype={'condition':str})
@@ -175,7 +179,10 @@ def read_run_diagnostics(run, **kwargs):
             raise ValueError('Expected one run summary row.')
         identity.update(condition=str(summary.iloc[0]['condition']),
                         seed=str(summary.iloc[0].get('data_seed', run.name)))
-    for frame in (diagnostics, reliability):
+        frames = [diagnostics, reliability]
+    if include_coverage:
+        frames.append(results[2])  # Accuracy–coverage table
+    for frame in frames:
         for key, value in identity.items():
             frame[key] = value
     meta = dict(**identity, audit_id=context.get('audit_id', 'legacy'),
@@ -184,6 +191,8 @@ def read_run_diagnostics(run, **kwargs):
                 classes=ensemble['mean_probs'].shape[1], group_names=names,
                 decision_policy='Binary column-1 threshold (ensemble_quality); multiclass argmax',
                 provenance=context.get('provenance', {}))
+    if include_coverage:
+        return diagnostics, reliability, meta, results[2]
     return diagnostics, reliability, meta
 
 
@@ -249,3 +258,76 @@ def compute_contrasts(frame, specifications, metrics):
                 record[metric] = float(np.dot(list(weights.values()), values)) if np.isfinite(values).all() else np.nan
             output.append(record)
     return pd.DataFrame(output)
+
+
+def accuracy_coverage_curves(uncertainty, correct, groups, *, group_names=None, tie_seed=0):
+    """Every retained count, ranked by total predictive entropy (nats).
+
+    Exact ties are shuffled reproducibly, without consulting correctness.
+    Coverage is relative to each subgroup. Zero coverage is not defined.
+    """
+    u = np.asarray(uncertainty, dtype=float)
+    ok, g = np.asarray(correct), np.asarray(groups)
+    if u.ndim != 1 or not len(u) or ok.shape != u.shape or g.shape != u.shape:
+        raise ValueError('Uncertainty, correctness and groups must be nonempty 1D and align.')
+    if not np.isfinite(u).all() or (u < -2e-6).any():
+        raise ValueError('Uncertainty must be finite and nonnegative.')
+    if not np.isin(ok, [0, 1]).all():
+        raise ValueError("Correctness must be boolean or 0/1.")
+    rng = np.random.default_rng(tie_seed)
+    frames = []
+    for gid in np.unique(g):
+        indices = rng.permutation(np.flatnonzero(g == gid))
+        order = indices[np.argsort(u[indices], kind="stable")]
+        n = len(order)
+        retained = np.arange(1, n+1)
+        names = group_names or {}
+        name = str(names.get(str(gid), names.get(gid, gid)))
+        frames.append(pd.DataFrame(dict(
+            group_id=str(gid), group=name, support=n, retained=retained, removed=n-retained,
+            coverage=retained/n, accuracy=np.cumsum(ok[order], dtype=float)/retained,
+            max_retained_U_tot=u[order],)).iloc[::-1])
+    return pd.concat(frames, ignore_index=True)
+
+
+def summarize_accuracy_coverage(frame):
+    """Equal-run mean on the union of exact coverage values within each group.
+
+    At requested coverage c, each run retains floor(c*n) people. No linear
+    interpolation or invented zero-coverage accuracy. Means require all runs
+    in the condition; unavailable tails remain NA. SD/t intervals are across
+    runs, not across individuals. Exact per-run curves are exported separately.
+    """
+    from scipy.stats import t
+    required = {'condition', 'run', 'group_id', 'group', 'coverage', 'accuracy'}
+    if required - set(frame):
+        raise ValueError(f'Missing coverage columns: {required - set(frame)}')
+    output = []
+    for condition, condition_frame in frame.groupby('condition', sort=False):
+        runs = list(condition_frame.run.unique())
+        for (gid, group), part in condition_frame.groupby(['group_id', 'group'], sort=False):
+            grid = np.sort(part.coverage.unique())
+            values = np.full((len(runs), len(grid)), np.nan)
+            for j, run in enumerate(runs):
+                curve = part[part.run == run].sort_values('coverage')
+                if curve.empty:
+                    continue
+                if curve.coverage.duplicated().any():
+                    raise ValueError('Duplicate coverage values within group/run.')
+                x = curve.coverage.to_numpy(float)
+                pos = np.searchsorted(x, np.nextafter(grid, np.inf), side='right') - 1
+                valid = pos >= 0
+                values[j, valid] = curve.accuracy.to_numpy(float)[pos[valid]]
+            n_valid = np.isfinite(values).sum(axis=0)
+            complete = n_valid == len(runs)
+            mean = np.full(len(grid), np.nan)
+            sd = mean.copy()
+            ci = mean.copy()
+            mean[complete] = values[:, complete].mean(axis=0)
+            if len(runs) > 1:
+                sd[complete] = values[:, complete].std(axis=0, ddof=1)
+                ci[complete] = t.ppf(.975, len(runs)-1)*sd[complete]/np.sqrt(len(runs))
+            output.append(pd.DataFrame(dict(condition=condition, group_id=gid,
+                group=group, coverage=grid, mean=mean, std=sd, ci95=ci,
+                n_runs=len(runs), n_valid=n_valid)))
+    return pd.concat(output, ignore_index=True)

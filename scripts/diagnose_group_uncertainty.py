@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 import numpy as np
 import pandas as pd
-from modules.metrics.group_diagnostics import read_run_diagnostics, summarize_runs, compute_contrasts
+from modules.metrics.group_diagnostics import read_run_diagnostics, summarize_runs, compute_contrasts, summarize_accuracy_coverage
 
 
 def main():
@@ -20,11 +20,13 @@ def main():
     parser.add_argument('--class-names', nargs='+', help='Display names in numerical class order: class 0, class 1, ...')
     parser.add_argument('--errorbars', choices=['sd','ci95','none'], default='ci95')
     parser.add_argument('--formats', nargs='+', choices=['png','pdf','svg'], default=['png','pdf'])
+    parser.add_argument('--coverage-tie-seed', type=int, default=0, help='Reproducible random ordering of equal total uncertainties')
     args = parser.parse_args()
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
-    from modules.utils.plots.plot_group_diagnostics import plot_panels, plot_contrasts, plot_reliability
+    from modules.utils.plots.plot_group_diagnostics import plot_panels, plot_contrasts, plot_reliability, plot_accuracy_coverage
+    from modules.utils.plots.group_labels import labels_for_frame
     print(f'Loading diagnostics from {args.input} and saving to {args.out}')
     try:
         if (args.input/'audit').is_dir():
@@ -35,14 +37,16 @@ def main():
             runs = completed_runs(args.input)
         if not runs:
             raise ValueError('No saved runs found.')
-        tables, curves, metadata = [], [], []
+        tables, curves, metadata, coverage_curves = [], [], [], []
         for run in runs:
-            table, curve, meta = read_run_diagnostics(run, high_confidence=args.high_confidence, bins=args.bins)
+            table, curve, meta, coverage = read_run_diagnostics(run, high_confidence=args.high_confidence, bins=args.bins,
+                                                                include_coverage=True, coverage_tie_seed=args.coverage_tie_seed)
             if args.conditions and meta['condition'] not in args.conditions:
                 continue
             if args.seeds and meta['seed'] not in args.seeds:
                 continue
             tables.append(table); curves.append(curve); metadata.append(meta)
+            coverage_curves.append(coverage)
         if not tables:
             raise ValueError('No runs match the selection.')
         data, reliability = pd.concat(tables,ignore_index=True), pd.concat(curves,ignore_index=True)
@@ -73,6 +77,10 @@ def main():
         data.to_csv(args.out/'group_diagnostic_runs.csv',index=False)
         summary.to_csv(args.out/'group_diagnostic_summary.csv',index=False)
         reliability.to_csv(args.out/'reliability_runs.csv',index=False)
+        coverage_data = pd.concat(coverage_curves, ignore_index=True)
+        coverage_summary = summarize_accuracy_coverage(coverage_data)
+        coverage_data.to_csv(args.out/'accuracy_coverage_runs.csv', index=False)
+        coverage_summary.to_csv(args.out/'accuracy_coverage_summary.csv', index=False)
         # Error-minus-correct differences are paired within each group and run.
         index = ['condition','run','seed','group_id','group']
         correct = data[data.scope=='correct'].set_index(index)
@@ -98,7 +106,12 @@ def main():
             plt.close(fig)
         for i, condition in enumerate(data.condition.unique(),1):
             part = summary[summary.condition==condition]
+            group_labels = labels_for_frame(data[data.condition==condition])
+            # group_labels = None
             stem = f'condition_{i:02d}'
+            save(plot_accuracy_coverage(coverage_summary[coverage_summary.condition == condition],
+                title=condition, errorbars=args.errorbars, group_labels=group_labels),
+                stem+'_accuracy_coverage')
             panels = [
                 ('quality', ['accuracy','TPR','FPR','nll','brier','high_conf_coverage','high_conf_error_rate','high_conf_risk'], ['overall']),
                 # Can uncertainty rank errors above correct predictions? In binary setting with threshold=0.5 error_auroc_U_tot = error_auroc_low_confidence
@@ -108,27 +121,28 @@ def main():
                 ('correctness', ['U_alea','U_epis','U_tot','U_het'], ['correct','incorrect']),
                 # How are actual members of each outcome class handled?
                 # ('true_class', ['U_alea','U_epis','U_tot','accuracy'], [f'true_class={k}' for k in range(c)]),
-                ('true_class', ['U_alea','U_epis','U_tot','U_het'], [f'true_class={k}' for k in range(c)]),
+                ('true_class', ['U_alea','U_epis','U_het'], [f'true_class={k}' for k in range(c)]),
                 # What are the predictions like among recipients of each decision?
                 # ('predicted_class', ['U_alea','U_epis','U_tot','accuracy'], [f'predicted_class={k}' for k in range(c)]),
-                ('predicted_class', ['U_alea','U_epis','U_tot','U_het'], [f'predicted_class={k}' for k in range(c)]),
+                ('predicted_class', ['U_tot','U_het','U_mix'], [f'predicted_class={k}' for k in range(c)]),
                 # prevalence_class_k is the percentage of samples in true class k; mean_prob_class_k is the average predicted probability for true class k.
                 ('composition', [f'prevalence_class_{k}' for k in range(c)]+[f'mean_prob_class_{k}' for k in range(c)], ['overall']),
                 # How much does class composition affect the group comparison?
                 ('standardized', ['U_alea','U_epis','U_tot','accuracy','high_conf_error_rate'], ['overall','class_standardized']),
             ]
             for name, requested, scopes in panels:
-                save(plot_panels(part, requested, scopes=scopes, scope_labels=label,
-                    errorbars=args.errorbars, title=condition+': '+name), stem+'_'+name)
+                print(f"Plotting panel: {name}. Requested:")
+                save(plot_panels(part, requested, scopes=scopes, scope_labels=label, ncols=3, figsize=(7.0, 2),
+                    errorbars=args.errorbars, group_labels=group_labels, title=condition+': '+name, show_overall_mean=name in {'true_class', 'predicted_class'}), stem+'_'+name)
             gap_part = gap_summary[gap_summary.condition==condition].assign(scope='incorrect minus correct')
             save(plot_panels(gap_part, gap_metrics, scopes=['incorrect minus correct'],
                 errorbars=args.errorbars, title=condition+': paired error-minus-correct gaps'), stem+'_error_gaps')
             # Realiability and ece tells if confidence is numerically trustworthy.
-            save(plot_reliability(reliability[reliability.condition==condition], condition),stem+'_reliability')
+            save(plot_reliability(reliability[reliability.condition==condition], condition, group_labels=group_labels),stem+'_reliability')
             if contrast_summary is not None:
-                for scope in ['overall','class_standardized']+[f'true_class={k}' for k in range(c)]:
+                for scope in ['overall','class_standardized']+[f'true_class={k}' for k in range(c)]+[f'predicted_class={k}' for k in range(c)]:
                     save(plot_contrasts(contrast_summary[contrast_summary.condition==condition], args.metrics,
-                        scope=scope, errorbars=args.errorbars, title=condition),stem+'_contrasts_'+scope.replace('=','_'))
+                        scope=scope, errorbars=args.errorbars, title=condition, group_labels=group_labels),stem+'_contrasts_'+scope.replace('=','_'))
         settings = {k:str(v) if isinstance(v,Path) else v for k,v in vars(args).items()}
         settings.update(runs=metadata, contrasts_resolved=specifications,
             condition_file_order=list(data.condition.unique()),
@@ -136,6 +150,7 @@ def main():
             standardization='Uniform true-class weights; absent classes give NA',
             interval='Pointwise Student-t CI across complete run estimates, not simultaneous/population CI',
             brier='Binary: class-1 squared error; multiclass: sum of squared class errors',
+            accuracy_coverage='Total predictive entropy; per-group ranking; seeded random ties; all retained counts exported; equal-run step means on union coverage grid; no zero-coverage estimate',
             reliability='Equal-run averages over occupied fixed-width bins; bin support exported')
         (args.out/'settings.json').write_text(json.dumps(settings,indent=2)+'\n')
         print(f'Diagnostics saved to {args.out}')
