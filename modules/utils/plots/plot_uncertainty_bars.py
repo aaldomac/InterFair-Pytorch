@@ -31,7 +31,7 @@ import pandas as pd
 
 COLORS = {
     "green": "#009E73", "red": "#D55E00", "blue": "#0072B2", "orange": "#E69F00",
-    "purple": "#CC79A7", "gray": "#7F7F7F",
+    "gray": "#7F7F7F", "purple": "#CC79A7", 
     "black": "#000000",
 }
 
@@ -42,9 +42,9 @@ HATCHES = ("", "//", "\\\\", "xx", "..", "++", "oo")
 PAPER_STYLE = {
     "figure.dpi": 150, "savefig.dpi": 300,
     "font.family": "serif", "font.serif": ["DejaVu Serif"],
-    "font.size": 8, "axes.labelsize": 8, "axes.titlesize": 8,
-    "legend.fontsize": 10, "xtick.labelsize": 7, "ytick.labelsize": 7,
-    "figure.titlesize": 9, "text.usetex": False,
+    "font.size": 12, "axes.labelsize": 14, "axes.titlesize": 14,
+    "legend.fontsize": 14, "xtick.labelsize": 12, "ytick.labelsize": 14,
+    "figure.titlesize": 11, "text.usetex": False,
     "lines.linewidth": 1.8, "lines.markersize": 3.5,
     "axes.spines.top": False, "axes.spines.right": False,
     "axes.linewidth": .6, "axes.grid": False,
@@ -127,6 +127,7 @@ def summarize_metrics(frame, metrics, *, condition_col='condition', conditions=N
         if seed_col in frame and frame.duplicated([condition_col,seed_col]).any():
             raise ValueError('Multiple rows per condition/seed. Filter group/pair first with --where, or use another condition column.')
         from modules.utils.reporting_utils import aggregate, summary_to_long
+        print(f"Aggregating the following metric values: {frame[[condition_col,seed_col]+metrics].to_string(index=False)}")
         stats = aggregate(frame, [condition_col], metrics, missing='raise')
         long = summary_to_long(stats, [condition_col], metrics)
         long = long.rename(columns={condition_col: 'condition'})
@@ -147,6 +148,7 @@ def summarize_metrics(frame, metrics, *, condition_col='condition', conditions=N
     result.loc[result.n==1,'std']=np.nan
     result.loc[result.n==1,'ci95']=np.nan
     result['n']=result.n.astype(int)
+    print(f"Summarized metric values {result[['condition','metric','mean','std','ci95','n']].to_string(index=False)}")
     return result
 
 
@@ -243,7 +245,7 @@ def plot_grouped_bars(summary, *, scale='none', errorbars='sd', title=None,
             if annotate:
                 for value,yy in zip(values,pos):
                     ax.annotate(f'{value:.3g}',(value,yy),xytext=(4 if value>=0 else -4,0),
-                                textcoords='offset points',ha='left' if value>=0 else 'right',va='center',fontsize=7)
+                                textcoords='offset points',ha='left' if value>=0 else 'right',va='center',fontsize=PAPER_STYLE['ytick.labelsize'])
         labels=[(condition_labels or {}).get(c,c.replace('loan_','',1).replace('_',' ')) for c in conditions]
         ax.set_yticks(y,labels)
         ax.invert_yaxis()
@@ -261,7 +263,7 @@ def plot_grouped_bars(summary, *, scale='none', errorbars='sd', title=None,
         # ax.legend(loc='upper left',bbox_to_anchor=(1.01,1),frameon=False,
         #           fontsize=7,title='Metric',title_fontsize=8)
         # Place the legend inside the figure where it does not overlap the bars, and avoid a title that is redundant with the axis label.
-        ax.legend(loc='lower right',frameon=False,fontsize=10)
+        ax.legend(loc='lower right',frameon=False,fontsize=PAPER_STYLE['legend.fontsize'])
         notes='Mean across runs' + ('; error bars: ±1 sample SD' if errorbars=='sd' else '; error bars: pointwise 95% CI' if errorbars=='ci95' else '')
         if (summary.n==1).any():
             notes+='; SD/CI unavailable for single runs'
@@ -271,8 +273,8 @@ def plot_grouped_bars(summary, *, scale='none', errorbars='sd', title=None,
         heading = [str(title)] if title else []
         if show_notes:
             heading.append(textwrap.fill(notes, width=max(30, int(fig.get_figwidth()*14))))
-        if heading:
-            ax.set_title('\n'.join(heading),loc='left',fontsize=10,pad=10)
+        # if heading:
+        #     ax.set_title('\n'.join(heading),loc='left',fontsize=10,pad=10)
     return fig,ax,plotted,parameters
 
 

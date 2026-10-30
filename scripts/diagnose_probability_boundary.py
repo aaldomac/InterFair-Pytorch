@@ -10,6 +10,29 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+# Palette from plotting_functions.py; no ICML/tueplots or seaborn dependency.
+COLORS = {
+    "green": "#009E73", "red": "#D55E00", "blue": "#0072B2", "orange": "#E69F00",
+    "purple": "#CC79A7", "gray": "#7F7F7F",
+    "black": "#000000",
+}
+PALETTE = tuple(COLORS.values())
+HATCHES = ("", "//", "\\\\", "xx", "..", "++", "oo")
+PAPER_STYLE = {
+    "figure.dpi": 150, "savefig.dpi": 300,
+    "font.family": "serif", "font.serif": ["DejaVu Serif"],
+    "font.size": 14, "axes.labelsize": 14, "axes.titlesize": 14,
+    "legend.fontsize": 12, "xtick.labelsize": 14, "ytick.labelsize": 14,
+    "figure.titlesize": 11, "text.usetex": False,
+    "lines.linewidth": 1.8, "lines.markersize": 3.5,
+    "axes.spines.top": False, "axes.spines.right": False,
+    "axes.linewidth": .6, "axes.grid": False,
+    "axes.facecolor": "white", "figure.facecolor": "white",
+    "savefig.facecolor": "white", "legend.frameon": False,
+    "grid.color": "#7F7F7F", "grid.linestyle": "--",
+    "grid.linewidth": .6, "grid.alpha": .4,
+    "pdf.fonttype": 42, "ps.fonttype": 42,
+}
 
 def read_json(path):
     return json.loads(path.read_text()) if path.exists() else {}
@@ -125,13 +148,13 @@ def plot_runs(runs, grid, args, destination):
                               f"{n_valid}/{len(runs)} nonempty runs.")
             if n_valid:
                 ax.step(grid, mean, where="post", color=color,
-                        label=f"{name} ({n_valid}/{len(runs)} runs)")
+                        label=f"Group {name}")# ({n_valid}/{len(runs)} runs)")
                 if np.isfinite(width).all() and args.shading != "none":
                     ax.fill_between(grid, np.clip(mean-width, 0, 1),
                                     np.clip(mean+width, 0, 1),
                                     color=color, alpha=.17, step="post")
             else:
-                ax.plot([], [], color=color, label=f"{name}: NA (0/{len(runs)})")
+                ax.plot([], [], color=color, label=f"Group {name}: NA (0/{len(runs)})")
             for x, m, w in zip(grid, mean, width):
                 summary_rows.append(dict(
                     group_id=gid, group=name, scope=scope, p1=x,
@@ -141,17 +164,18 @@ def plot_runs(runs, grid, args, destination):
         ax.axvspan(max(0, threshold-args.band), min(1, threshold+args.band),
                    color="grey", alpha=.08)
         title = scope if scope == "overall" else f"Predicted: {args.class_names[int(scope[-1])]}"
-        ax.set(title=title, xlabel=r"$\bar p_1$", xlim=(0, 1), ylim=(0, 1))
+        ax.set(title=title, xlim=(0, 1), ylim=(0, 1))
+        ax.set_xlabel(r"$\bar p(\hat Y=1|X,g)$", fontsize=PAPER_STYLE["axes.labelsize"])
         ax.grid(alpha=.2)
-        ax.legend(fontsize=6, loc="best")
-    axes[0].set_ylabel("Mean within-run cumulative fraction")
+        ax.legend(fontsize=PAPER_STYLE["legend.fontsize"], loc="best")
+    axes[0].set_ylabel("Mean within-run cumulative fraction", fontsize=PAPER_STYLE["axes.labelsize"])
     shade = {"sd": "±1 SD across runs", "ci95": "pointwise 95% t CI", "none": "no shading"}
     # fig.suptitle(f"{runs[0]['condition']} | {len(runs)} runs | {shade[args.shading]}\n"
     #              "Equal run weights; empty subsets omitted and coverage reported",
     #              fontsize=10)
     fig.tight_layout()
     for fmt in args.formats:
-        fig.savefig(str(destination) + "." + fmt, dpi=180)
+        fig.savefig(str(destination) + "." + fmt, dpi=300)
     plt.close(fig)
     pd.DataFrame(all_rows).to_csv(str(destination)+"_runs.csv", index=False)
     pd.DataFrame(summary_rows).to_csv(str(destination)+"_ecdf.csv", index=False)
