@@ -1,4 +1,4 @@
-"""COMPAS two-year recidivism data; protected attributes are race and sex.
+"""COMPAS two-year recidivism data; protected attributes are sex and race.
 
 Predicts the recorded outcome, not the proprietary COMPAS score.
 Only FEATURES are eligible predictor inputs. No score or follow-up fields enter X.
@@ -11,19 +11,19 @@ import pandas as pd
 FEATURES = ("age", "juv_fel_count", "juv_misd_count", "juv_other_count",
             "priors_count", "c_charge_degree")
 RACES = ("Caucasian", "African-American", "Hispanic", "Asian", "Native American", "Other")
-SEX_CODES = {"Male": 1, "Female": 0}
+SEX_CODES = {"Male": 0, "Female": 1}
 FILTER_COLUMNS = ("days_b_screening_arrest", "is_recid", "score_text")
 SOURCE_URL = "https://raw.githubusercontent.com/propublica/compas-analysis/master/compas-scores-two-years.csv"
 
 
 
-def preprocess_compas(df, *, race_mode="afroamerican-caucasian", apply_filters=True, drop_na=True):
+def preprocess_compas(df, *, race_mode="afroamerican_caucasian", apply_filters=True, drop_na=True):
     """Return (frame, group-name-to-ID mapping, metadata).
 
     race_mode='all': preserve six source categories.
     race_mode='afroamerican_caucasian': restrict to Caucasian/African-American (codes 0/1).
-    Sex: Male=1, Female=0. Label 1 denotes recorded two-year recidivism.
-    IDs use 2*race_code+sex_code, so absent groups do not renumber others.
+    Sex: Male=0, Female=1. Label 1 denotes recorded two-year recidivism.
+    IDs use n_races*sex_code + race_code, so absent groups do not renumber others.
     Missing required fields are dropped only when drop_na=True; malformed values
     and unexpected categories always raise. Missing unused columns are irrelevant.
     """
@@ -83,13 +83,16 @@ def preprocess_compas(df, *, race_mode="afroamerican-caucasian", apply_filters=T
     if df.empty:
         raise ValueError("No COMPAS observations remain.")
     race_codes = {name: i for i, name in enumerate(RACES if race_mode == "all" else RACES[:2])}
+    n_races = len(race_codes)
     # Allowlist prevents identifiers, risk scores, and outcomes leaking into X.
-    out = df[list(FEATURES) + ["race", "sex", "two_year_recid"]].copy()
+    out = df[list(FEATURES) + ["sex", "race", "two_year_recid"]].copy()
     out["race"] = out["race"].map(race_codes).astype(int)
     out["sex"] = out["sex"].map(SEX_CODES).astype(int)
     out["two_year_recid"] = out["two_year_recid"].astype(int)
-    out["group_id"] = 2 * out["race"] + out["sex"]
-    out["group"] = out["race"].astype(str) + "_" + out["sex"].astype(str)
+    # out["group_id"] = 2 * out["race"] + out["sex"]
+    out["group_id"] = n_races * out["sex"] + out["race"]
+    # out["group"] = out["race"].astype(str) + "_" + out["sex"].astype(str)
+    out["group"] = out["sex"].astype(str) + "_" + out["race"].astype(str)
     mapping = dict(sorted(zip(out["group"], out["group_id"])))
     out = out.reset_index(drop=True)
     metadata = {
@@ -97,14 +100,15 @@ def preprocess_compas(df, *, race_mode="afroamerican-caucasian", apply_filters=T
         "apply_filters": apply_filters, "drop_na": drop_na, "row_counts": counts,
         "positive_label": "recorded two-year recidivism",
         "feature_columns": list(FEATURES),
-        "group_names": {str(2*r+s): f"{race} / {sex}"
-                        for race, r in race_codes.items() for sex, s in SEX_CODES.items()
-                        if 2*r+s in set(out["group_id"])},
-    }
+        "group_names": {str(n_races * s + r): f"{sex} / {race}"
+                        for sex, s in SEX_CODES.items()
+                        for race, r in race_codes.items()
+                        if n_races * s + r in set(out["group_id"])},
+                    }
     return out, mapping, metadata
 
 
-def load_dataset(*, csv_path="data/compas-scores-two-years.csv", race_mode="afroamerican-caucasian",
+def load_dataset(*, csv_path="data/compas-scores-two-years.csv", race_mode="afroamerican_caucasian",
                  apply_filters=True, drop_na=True, seed=42, compute_pg=False,
                  pg_alpha=1.0, pg_num_draws=20000, pg_ci=0.95):
     """Adult-compatible loader. CSV must be downloaded explicitly before running."""
@@ -118,7 +122,7 @@ def load_dataset(*, csv_path="data/compas-scores-two-years.csv", race_mode="afro
         raw, race_mode=race_mode, apply_filters=apply_filters, drop_na=drop_na)
     metadata.update(source_url=SOURCE_URL, csv_path=str(path.resolve()),
                     source_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
-                    spec=DatasetSpec(name="compas", protected_cols=("race", "sex"),
+                    spec=DatasetSpec(name="compas", protected_cols=("sex", "race"),
                                      label_col="two_year_recid"))
     pg_table = pg = None
     if compute_pg:
